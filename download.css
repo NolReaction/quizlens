@@ -45,6 +45,9 @@ h3 { font-size: 1.65rem; }
 .button { display: inline-flex; justify-content: center; align-items: center; gap: .6rem; padding: .66rem 1.2rem; border-radius: .65rem; line-height: 1.45; border: 1px solid var(--line); }
 .button.primary, .recommended .asset { background: var(--accent); color: #09261c; border-color: transparent; }
 .button.primary:hover, .recommended .asset:hover { background: #a4eabf; }
+.button { min-height: 46px; }
+.button.secondary { background: #1b302b; color: var(--accent); }
+.button.secondary:hover { background: #274237; }
 .text-link { color: var(--accent); border: 0; background: transparent; padding: .45rem 0; }
 .text-link:hover { text-decoration: underline; }
 .preview { border: 1px solid #436454; border-radius: 1.12rem; padding: clamp(1.15rem, 3vw, 2rem); background: linear-gradient(133deg, #203b31 0%, #182b28 88%); }
@@ -85,8 +88,16 @@ h3 { font-size: 1.65rem; }
 .steps details > div { max-width: 76ch; }
 .steps p { margin-top: .7rem; color: var(--muted); }
 .steps strong { font-weight: 620; color: var(--text); }
+.first-run-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+.first-run-card { padding: clamp(1.2rem, 3vw, 2rem); background: var(--surface); border: 1px solid var(--line); border-radius: .9rem; scroll-margin-block-start: 1rem; }
+.first-run-card h3 { font-size: clamp(1.35rem, 2vw, 1.65rem); }
+.first-run-card p { color: var(--muted); margin-top: .9rem; }
+.first-run-card strong { color: var(--text); font-weight: 620; }
+.first-run-card .button { margin-top: 1.2rem; }
 code { font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
 .foot { border-top: 1px solid var(--line); padding-block: 1.5rem; font-size: .88rem; }
 @media (max-width: 740px) { .hero { grid-template-columns: 1fr; gap: 2rem; } .preview { max-width: 32em; } }
 @media (max-width: 570px) { .wrap { width: calc(100% - 2rem); } .nav nav { font-size: .84rem; gap: .8rem; } .nav { min-height: 58px; } .build-grid { grid-template-columns: 1fr; } .section-heading { gap: .45rem; } }
 @media (max-width: 380px) { .nav { align-items: flex-start; flex-wrap: wrap; gap: .4rem; padding-block: .6rem; } .nav nav { width: 100%; justify-content: space-between; } }
+@media (max-width: 660px) { .first-run-grid { grid-template-columns: 1fr; } }
+.nav nav a { display: inline-flex; align-items: center; min-height: 44px; }

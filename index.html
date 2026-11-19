@@ -12,15 +12,15 @@
 <header class="bar">
   <div class="wrap nav">
     <a href="./" class="brand" aria-label="QuizLens, начало страницы"><span class="lens" aria-hidden="true"></span>Quiz<span>Lens</span></a>
-    <nav aria-label="Навигация"><a href="#download">Скачать</a><a href="#start">Инструкция</a><a href="https://github.com/NolReaction/quizlens" class="external">GitHub <span aria-hidden="true">↗</span></a></nav>
+    <nav aria-label="Навигация"><a href="#download">Скачать</a><a href="#start">Установка</a><a href="#model-setup">LM Studio</a></nav>
   </div>
 </header>
 <main id="main">
   <section class="hero wrap" aria-labelledby="intro">
     <div class="intro">
       <h1 id="intro">Ответ на квиз <em>из твоей лекции.</em></h1>
-      <p>Выбери окно с вопросом. QuizLens прочитает варианты, найдёт подходящий фрагмент лекции и покажет подсказку. Всё обрабатывается на твоём компьютере.</p>
-      <div class="hero-actions"><a id="hero-action" class="button primary" href="#download">Выбрать сборку <span aria-hidden="true">↓</span></a><a class="text-link" href="#start">Как запустить</a></div>
+      <p>QuizLens для Mac и Windows читает вопрос с экрана и находит подсказку в твоих лекциях. После установки приложение открывается в браузере и обрабатывает материалы на твоём компьютере.</p>
+      <div class="hero-actions"><a id="hero-action" class="button primary" href="#download">Выбрать сборку <span aria-hidden="true">↓</span></a><a class="button secondary" href="#start">Как запустить</a></div>
     </div>
     <aside class="preview" aria-label="Пример работы QuizLens">
       <div class="preview-caption"><span class="caption-dot" aria-hidden="true"></span>Пример подсказки</div>
@@ -44,7 +44,7 @@
   </section>
 
   <section id="start" class="guide wrap section" aria-labelledby="guide-title">
-    <div class="section-heading"><div><h2 id="guide-title">Первый запуск</h2><p>Установи программу и проверь её на демонстрационном квизе.</p></div><a href="https://github.com/NolReaction/quizlens/blob/HEAD/docs/GUIDE.md" class="text-link">Полная инструкция ↗</a></div>
+    <div class="section-heading"><div><h2 id="guide-title">Первый запуск</h2><p>Открой инструкцию для своей системы. Дальше работай в окне запущенного QuizLens.</p></div><a href="https://github.com/NolReaction/quizlens/blob/HEAD/docs/GUIDE.md" class="text-link">Полная инструкция ↗</a></div>
     <div class="steps">
       <details id="mac-install"><summary>Установить на Mac</summary><div>
         <p>Распакуй ZIP, перенеси <strong>QuizLens.app</strong> в «Программы» и открой. Нужен Python версии 3.9 или новее. Если он ещё не установлен, скачай Python для macOS. <a href="https://www.python.org/downloads/macos/">Сайт Python ↗</a></p>
@@ -54,10 +54,19 @@
         <p>Распакуй ZIP через «Извлечь всё». Установи 64-разрядный Python 3.9+ и открой <strong>Start.cmd</strong>. Оставь консоль открытой во время работы. <a href="https://www.python.org/downloads/windows/">Python для Windows ↗</a></p>
         <p>Для чтения экрана закрой QuizLens, установи Tesseract с языками <code>rus</code> и <code>eng</code>, затем запусти <strong>Install-OCR.cmd</strong>. После установки снова открой <strong>Start.cmd</strong>. Пошаговая инструкция есть в <strong>START-HERE.txt</strong> внутри архива.</p>
       </div></details>
-      <details><summary>Выбрать локальную модель</summary><div><p>На главной странице QuizLens открой <strong>«Подобрать модель для компьютера»</strong>. Приложение учтёт память и графику, покажет точный файл GGUF и даст ссылку на скачивание. Введи характеристики вручную, если подбираешь модель для друга.</p>
-        <p>Загрузи модель в Bionic или LM Studio, включи локальный API-сервер и нажми в QuizLens <strong>«Обновить список» → «Проверить на трёх вопросах»</strong>. Замер покажет, на сколько вопросов модель верно ответила за 15 секунд на вопрос. Для встроенных карточек модель можно пропустить. <a href="https://lmstudio.ai/">LM Studio ↗</a></p></div></details>
-      <details><summary>Проверить захват и добавить свои лекции</summary><div><p>В разделе <strong>«Захват»</strong> отметь демонстрационный банк <code>analytics-demo.quiz.json</code>. Нажми <strong>«Открыть пробный квиз»</strong>, вернись в QuizLens и через <strong>«Выбрать окно»</strong> подключи вкладку квиза. Перейди в квиз и нажми <strong>«Начать»</strong>.</p>
-        <p>Для занятия добавь свои PDF, PPTX, IPYNB или текст через <strong>«Лекции и модель» → «+ Добавить»</strong>. При появлении подсказки можно сверить её с цитатой. В тренировке доступны вопросы с таймером, а в журнале можно разобрать и исправить ответ.</p></div></details>
+    </div>
+    <div class="first-run-grid">
+      <article class="first-run-card">
+        <h3>Попробовать без модели</h3>
+        <p>В приложении выбери <strong>«Тренировка» → «Открыть карточки»</strong>. Вспомни ответ и нажми <strong>«Показать ответ»</strong>, чтобы проверить себя.</p>
+        <p>Для репетиции захвата нажми <strong>«Открыть пробный квиз»</strong>. Появится отдельное окно. В QuizLens нажми <strong>«Выбрать окно»</strong>, укажи квиз, затем нажми <strong>«Начать»</strong> в окне квиза.</p>
+      </article>
+      <article id="model-setup" class="first-run-card">
+        <h3>Подключить LM Studio</h3>
+        <p>Для подсказок по своим лекциям открой раздел <strong>LM Studio</strong> в QuizLens. Он подберёт модель под память компьютера и покажет, какой файл GGUF скачать.</p>
+        <p>Загрузи модель и включи сервер. В LM Studio это <strong>Developer → Start Server</strong>, в Bionic — <strong>Settings → Local Model API</strong>. Вернись в QuizLens, проверь соединение и добавь лекцию в разделе «Захват».</p>
+        <a class="button secondary" href="https://lmstudio.ai/download">Скачать LM Studio или Bionic ↗</a>
+      </article>
     </div>
   </section>
 </main>
