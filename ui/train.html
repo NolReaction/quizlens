@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Тренировка · QuizLens</title>
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/train.css"><script src="/train.js" defer></script></head>
+<body>
+<header class="top"><div class="bar"><a class="brand" href="/"><i class="lens"></i>Quiz<span>Lens</span></a><nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train" aria-current="page">Тренировка</a><a href="/journal">Журнал</a></nav></div></header>
+<main class="train">
+<h1>Тренировка</h1>
+<section class="panel" id="setup">
+  <h2>Вопросы по лекции</h2>
+  <label for="material">Материал</label><select id="material"><option value="builtin">Метрики в аналитике · 10 вопросов</option></select>
+  <p class="hint" id="materialNote"></p>
+  <div class="field" id="modelField"><label for="localModel">Локальная модель</label><div class="line"><select id="localModel"><option value="">Модель не выбрана</option></select><button type="button" class="button" id="refresh">Обновить</button></div></div>
+  <div id="generation" hidden><button type="button" class="button" id="generate">Подготовить вопросы</button><div id="review"></div></div>
+  <div class="buttons"><button type="button" class="button primary" id="practice" disabled>Решать самому</button><button type="button" class="button" id="bench" disabled>Запустить проверку модели</button></div>
+  <p id="status" role="status" class="hint"></p>
+  <a class="chart-link" href="/visual">Открыть разбор графика или таблицы ↗</a>
+</section>
+<section id="round" class="panel" hidden>
+  <div class="round-head"><small id="position"></small><span id="time" class="clock" role="timer"></span></div>
+  <progress id="timeBar" max="15" value="15" aria-label="Оставшееся время"></progress>
+  <h2 id="question"></h2><p id="instruction" class="hint"></p>
+  <fieldset id="answers" aria-label="Варианты ответа"></fieldset>
+  <button type="button" id="submit" class="button primary" disabled>Ответить</button>
+  <div id="feedback" aria-live="polite"></div>
+  <div id="changes" class="changes" hidden><label for="condition">Измени одно условие</label><div class="line"><select id="condition"></select><button type="button" class="button" id="tryChange">Решить ещё раз</button></div></div>
+  <div class="buttons"><button type="button" class="button primary" id="next" hidden>Дальше</button><button type="button" class="button text-button" id="stop">Завершить</button></div>
+</section>
+<section id="report" class="panel" hidden><h2>Результат</h2><p id="score"></p><p id="scope" class="hint"></p><div id="summary"></div><button type="button" id="restart" class="button primary">К выбору тренировки</button></section>
+</main></body></html>

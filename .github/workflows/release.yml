@@ -1,0 +1,106 @@
+name: Publish release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  mac:
+    needs: tests
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      signing: ${{ steps.package.outputs.signing }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+      - name: Check release tag and record the repository for share links
+        run: python3 packaging/release_assets.py prepare "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+      - id: package
+        name: Package macOS and verify signing status
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: bash packaging/mac_release_ci.sh
+      - name: Launch the exact packaged server and check the release assets
+        env:
+          SIGNING: ${{ steps.package.outputs.signing }}
+        run: python3 packaging/smoke_archive.py dist/QuizLens-Mac.zip --signing "$SIGNING"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: mac
+          path: dist/QuizLens-Mac.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    needs: tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+      - name: Check release tag and record the repository for share links
+        run: python packaging/release_assets.py prepare "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+      - name: Build and start the Windows archive
+        run: |
+          python packaging/package_windows.py --output dist/QuizLens-Windows.zip
+          python packaging/smoke_archive.py dist/QuizLens-Windows.zip
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: windows
+          path: dist/QuizLens-Windows.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: mac
+          path: dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: windows
+          path: dist
+      - name: Generate manifest, guide and SHA-256 checksums
+        env:
+          SIGNING: ${{ needs.mac.outputs.signing }}
+        run: python3 packaging/release_assets.py assemble "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" "$SIGNING" dist
+      - name: Publish the complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash packaging/publish_release.sh

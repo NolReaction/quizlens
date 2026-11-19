@@ -1,0 +1,188 @@
+{
+  "cards": [
+    {
+      "language": "ru",
+      "question": "Какая метрика показывает долю найденных положительных случаев среди всех реальных положительных случаев?",
+      "options": ["Precision", "Recall", "Accuracy", "Specificity"],
+      "answer": "Recall",
+      "source": "analytics-demo.txt · 1. Полнота",
+      "explanation": "Recall = TP / (TP + FN)."
+    },
+    {
+      "language": "ru",
+      "question": "Модель выдала 40 предупреждений, из них 30 верны. Чему равен Precision?",
+      "options": ["25 %", "50 %", "75 %", "100 %"],
+      "answer": "75 %",
+      "source": "analytics-demo.txt · 2. Точность положительных прогнозов",
+      "explanation": "30 верных предупреждений из 40 дают 75 %."
+    },
+    {
+      "language": "ru",
+      "question": "Какое утверждение о Recall и Precision неверно?",
+      "options": ["Recall учитывает пропуски", "Precision учитывает ложные тревоги", "Recall всегда равен Precision", "Precision = TP / (TP + FP)"],
+      "answer": "Recall всегда равен Precision",
+      "source": "analytics-demo.txt · 3. Различие между Recall и Precision",
+      "explanation": "В расчёте Recall учитываются пропуски, в расчёте Precision — ложные тревоги."
+    },
+    {
+      "language": "ru",
+      "question": "Магазин посетили 200 человек. Покупку сделали 8 человек. Какова конверсия посетителей в покупателей?",
+      "options": ["2 %", "4 %", "8 %", "16 %"],
+      "answer": "4 %",
+      "source": "analytics-demo.txt · 4. Конверсия посетителей в покупателей",
+      "explanation": "8 / 200 × 100 % = 4 %."
+    },
+    {
+      "language": "ru",
+      "question": "В выборке зарплат есть одна исключительно большая выплата. Чем лучше описать типичную зарплату?",
+      "options": ["Медианой", "Средним арифметическим", "Максимумом", "Размахом"],
+      "answer": "Медианой",
+      "source": "analytics-demo.txt · 5. Типичное значение и выбросы",
+      "explanation": "Медиана устойчива к отдельному крайнему значению."
+    },
+    {
+      "language": "ru",
+      "question": "Из 1000 клиентов ушли 10. Модель предсказала всем клиентам «останется». Чему равна Accuracy?",
+      "options": ["0 %", "1 %", "50 %", "99 %"],
+      "answer": "99 %",
+      "source": "analytics-demo.txt · 6. Доля верных ответов",
+      "explanation": "Прогноз оказался верным для 990 из 1000 клиентов."
+    },
+    {
+      "language": "en",
+      "question": "Which metric measures the share of actual positives that the model found?",
+      "options": ["Precision", "Recall", "Accuracy", "Specificity"],
+      "answer": "Recall",
+      "source": "analytics-demo.txt · 1. Полнота",
+      "explanation": "Recall = TP / (TP + FN)."
+    },
+    {
+      "language": "en",
+      "question": "The model produced 40 alerts and 30 were correct. What is its precision?",
+      "options": ["25 %", "50 %", "75 %", "100 %"],
+      "answer": "75 %",
+      "source": "analytics-demo.txt · 2. Точность положительных прогнозов",
+      "explanation": "30 correct alerts out of 40 gives 75 %."
+    },
+    {
+      "language": "en",
+      "question": "Which statement about recall and precision is false?",
+      "options": ["Recall counts misses", "Precision counts false alarms", "Recall always equals precision", "Precision = TP / (TP + FP)"],
+      "answer": "Recall always equals precision",
+      "source": "analytics-demo.txt · 3. Различие между Recall и Precision",
+      "explanation": "Recall depends on misses. Precision depends on false alarms."
+    },
+    {
+      "language": "en",
+      "question": "A store had 200 visitors. Eight people bought something. What was the conversion rate?",
+      "options": ["2 %", "4 %", "8 %", "16 %"],
+      "answer": "4 %",
+      "source": "analytics-demo.txt · 4. Конверсия посетителей в покупателей",
+      "explanation": "8 buyers divided by 200 visitors gives 4 %."
+    },
+    {
+      "language": "en",
+      "question": "A dataset of salaries contains one extreme payout. Which statistic best describes a typical salary?",
+      "options": ["Median", "Arithmetic mean", "Maximum", "Range"],
+      "answer": "Median",
+      "source": "analytics-demo.txt · 5. Типичное значение и выбросы",
+      "explanation": "The median is robust to an extreme observation."
+    },
+    {
+      "language": "en",
+      "question": "Ten of 1000 customers left. A model predicted every customer would stay. What is its accuracy?",
+      "options": ["0 %", "1 %", "50 %", "99 %"],
+      "answer": "99 %",
+      "source": "analytics-demo.txt · 6. Доля верных ответов",
+      "explanation": "The prediction was correct for 990 of the 1000 customers."
+    },
+    {
+      "language": "ru",
+      "question": "Выберите два верных утверждения о Recall и Precision.",
+      "options": ["Recall учитывает пропуски", "Recall всегда равен Precision", "Precision учитывает ложные тревоги", "При росте числа пропусков Recall всегда растёт"],
+      "answers": ["Recall учитывает пропуски", "Precision учитывает ложные тревоги"],
+      "source": "analytics-demo.txt · 3. Различие между Recall и Precision",
+      "explanation": "Recall учитывает пропуски, а Precision учитывает ложные тревоги. Эти метрики могут различаться."
+    },
+    {
+      "language": "en",
+      "question": "Select two true statements about recall and precision.",
+      "options": ["Recall accounts for missed positives", "Recall always equals precision", "Precision accounts for false alarms", "Recall always increases with more missed positives"],
+      "answers": ["Recall accounts for missed positives", "Precision accounts for false alarms"],
+      "source": "analytics-demo.txt · 3. Различие между Recall и Precision",
+      "explanation": "Recall accounts for missed positives, while precision accounts for false alarms. Their values can differ."
+    },
+    {
+      "language": "ru",
+      "format": "variable",
+      "question": "При неизменном TP число пропусков выросло. Снизится ли Recall?",
+      "options": ["Да", "Нет"],
+      "answer": "Да",
+      "source": "analytics-demo.txt · 1. Полнота",
+      "explanation": "При фиксированном TP рост FN увеличивает знаменатель TP + FN."
+    },
+    {
+      "language": "en",
+      "format": "variable",
+      "question": "With TP fixed, more positives were missed. Does recall fall?",
+      "options": ["Yes", "No"],
+      "answer": "Yes",
+      "source": "analytics-demo.txt · 1. Полнота",
+      "explanation": "With TP fixed, increasing FN increases the denominator TP + FN."
+    },
+    {
+      "language": "ru",
+      "format": "variable",
+      "question": "Какой показатель устойчив к одной очень большой зарплате?",
+      "options": ["Максимум", "Медиана", "Размах"],
+      "answer": "Медиана",
+      "source": "analytics-demo.txt · 5. Типичное значение и выбросы",
+      "explanation": "Медиана определяется положением в упорядоченном ряду."
+    },
+    {
+      "language": "en",
+      "format": "variable",
+      "question": "Which measure of typical pay resists one very large salary?",
+      "options": ["Maximum", "Median", "Range"],
+      "answer": "Median",
+      "source": "analytics-demo.txt · 5. Типичное значение и выбросы",
+      "explanation": "The median depends on position in the ordered sample."
+    },
+    {
+      "language": "ru",
+      "format": "variable",
+      "question": "Выбери два показателя, для расчёта которых в лекции используется TP.",
+      "options": ["Число покупателей", "Recall", "Размах", "Медиана", "Precision"],
+      "answers": ["Recall", "Precision"],
+      "source": "analytics-demo.txt · 3. Различие между Recall и Precision",
+      "explanation": "Recall = TP / (TP + FN). Precision = TP / (TP + FP)."
+    },
+    {
+      "language": "en",
+      "format": "variable",
+      "question": "Select two metrics whose formulas in the lecture use TP.",
+      "options": ["Buyer count", "Recall", "Range", "Median", "Precision"],
+      "answers": ["Recall", "Precision"],
+      "source": "analytics-demo.txt · 3. Различие между Recall и Precision",
+      "explanation": "Recall = TP / (TP + FN). Precision = TP / (TP + FP)."
+    },
+    {
+      "language": "ru",
+      "format": "variable",
+      "question": "Из 200 посетителей восемь сделали покупку. Какова конверсия?",
+      "options": ["0,4 %", "1 %", "2 %", "3 %", "4 %", "5 %", "8 %", "25 %"],
+      "answer": "4 %",
+      "source": "analytics-demo.txt · 4. Конверсия посетителей в покупателей",
+      "explanation": "8 / 200 × 100 % = 4 %."
+    },
+    {
+      "language": "en",
+      "format": "variable",
+      "question": "Eight of 200 visitors made a purchase. What is the conversion rate?",
+      "options": ["0.4%", "1%", "2%", "3%", "4%", "5%", "8%", "25%"],
+      "answer": "4%",
+      "source": "analytics-demo.txt · 4. Конверсия посетителей в покупателей",
+      "explanation": "8 / 200 × 100% = 4%."
+    }
+  ]
+}

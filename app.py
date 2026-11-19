@@ -1,0 +1,530 @@
+"""Local QuizLens server for desktop capture and practice."""
+from __future__ import annotations
+
+import argparse
+import errno
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import socket
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import webbrowser
+from functools import lru_cache
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.client import HTTPConnection, HTTPException
+from urllib.parse import parse_qs, urlsplit
+
+import advisor
+import engine
+import model_bench
+import ocr
+import quiz_mode
+import semantic
+import training
+import visual
+from auto_layout import assess_layout
+from journal import Journal
+from native_mode import NativeMode
+
+ROOT = Path(__file__).resolve().parent
+VERSION = (ROOT / "packaging" / "VERSION").read_text(encoding="ascii").strip()
+DEFAULT_PORT = 8765
+MAX_IMPORT = 32 * 1024 * 1024
+FORMATS = {".txt", ".md", ".pdf", ".ipynb", ".pptx"}
+WEB_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+             ".css": "text/css; charset=utf-8", ".ico": "image/x-icon",
+             ".png": "image/png", ".svg": "image/svg+xml"}
+ENDPOINT = os.environ.get("QUIZ_LENS_LM_URL", "http://127.0.0.1:1234/v1")
+# Browser selections store the original bundled bank's content hash.
+BUNDLED_BANK_ID = "ce46f62e43985a2d6bf6d99b25b9856e8bf6e40d7e4e49f2b5e374fff7a4c934"
+
+
+def user_dir():
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/QuizLens"
+    if sys.platform == "win32":
+        # Preserve the folder used by people who ran earlier releases from source.
+        previous = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "QuizLens"
+        if (previous / "lectures").is_dir():
+            return previous
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local") / "QuizLens"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "QuizLens"
+
+
+def recognized(name):
+    return Path(name).suffix.lower() in FORMATS or name.lower().endswith(".quiz.json")
+
+
+@lru_cache(maxsize=1)
+def release_links():
+    # Release builds stamp the origin; a local checkout can run without Git or a remote.
+    try:
+        repository = (ROOT / "packaging" / "REPOSITORY").read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        return None
+    segments = repository.split("/")
+    if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}", repository)
+            or segments[-1] in (".", "..")):
+        return None
+    base = "https://github.com/" + repository
+    return {"releases": base + "/releases/latest", "guide": base + "/blob/HEAD/docs/GUIDE.md"}
+
+
+@lru_cache(maxsize=1)
+def host_hardware():
+    return advisor.detect_hardware()
+
+
+def model_advice(manual_profile=None):
+    if manual_profile is not None:
+        result = advisor.recommend(manual_profile, model_ids=())
+        return {**result, "models": [], "serverAvailable": None, "serverError": "", "caseCount": model_bench.CASE_COUNT}
+    profile = host_hardware()
+    try:
+        models = engine.list_models(base_url=ENDPOINT, timeout=3)
+        error = ""
+    except RuntimeError as exc:
+        models, error = [], str(exc)
+    return {**advisor.recommend(profile, model_ids=models), "models": models,
+            "serverAvailable": not error, "serverError": error, "caseCount": model_bench.CASE_COUNT}
+
+
+class Corpus:
+    def __init__(self, directory):
+        self.folder = directory
+        self.folder.mkdir(parents=True, exist_ok=True)
+        self.entries = {}
+        self.cache = {}
+        self.lock = threading.RLock()
+        for path in sorted(self.folder.glob("*.json")):
+            try:
+                row = json.loads(path.read_text(encoding="utf-8"))
+                if row["id"] == path.stem and isinstance(row["sections"], list):
+                    self.entries[row["id"]] = row
+            except (OSError, ValueError, KeyError, TypeError):
+                print("Не удалось прочитать сохранённый индекс", path.name, file=sys.stderr)
+        for path in sorted((ROOT / "examples").glob("*")):
+            if path.is_file() and recognized(path.name):
+                self.add(path, bundled=path.name == "analytics-demo.quiz.json")
+
+    @staticmethod
+    def description(row):
+        return {"id": row["id"], "name": row["name"], "count": len(row["sections"])}
+
+    def list(self):
+        with self.lock:
+            return [self.description(row) for row in self.entries.values()]
+
+    def add(self, path, bundled=False):
+        digest = hashlib.sha256(path.name.encode() + b"\0" + path.read_bytes()).hexdigest()
+        key = BUNDLED_BANK_ID if bundled else digest
+        with self.lock:
+            existing = self.entries.get(key)
+            if existing and (not bundled or (existing.get("bundleRevision") == digest and
+                                             existing.get("cardIndexVersion") == 2)):
+                return self.description(existing)
+            # A manual import of the current built-in file reuses its selection.
+            seed = self.entries.get(BUNDLED_BANK_ID, {})
+            if not bundled and seed.get("bundleRevision") == digest:
+                return self.description(seed)
+        sections = engine.import_document(path)
+        if not sections:
+            raise ValueError("В файле не найден читаемый текст.")
+        row = {"id": key, "name": path.name, "sections": sections}
+        if bundled:
+            row["bundleRevision"] = digest
+            row["cardIndexVersion"] = 2
+        with self.lock:
+            tmp = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=self.folder, prefix=".import-", mode="w",
+                                                 encoding="utf-8", delete=False) as handle:
+                    tmp = Path(handle.name)
+                    json.dump(row, handle, ensure_ascii=False)
+                tmp.replace(self.folder / (key + ".json"))
+            finally:
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)
+            self.entries[key] = row
+            self.cache.clear()
+        return self.description(row)
+
+    def index(self, ids):
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+            raise ValueError("Выбери хотя бы одну лекцию.")
+        key = tuple(sorted(set(ids)))
+        with self.lock:
+            if any(i not in self.entries for i in key):
+                raise ValueError("Обнови список лекций и выбери материалы снова.")
+            if key not in self.cache:
+                if len(self.cache) >= 8:
+                    self.cache.clear()
+                sections = [s for i in key for s in self.entries[i]["sections"]]
+                self.cache[key] = engine.LectureIndex(sections)
+            return self.cache[key]
+
+
+class QuizServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = sys.platform != "win32"
+
+    def solve(self, data):
+        started = time.monotonic()
+        q, options, model = data.get("question"), data.get("options"), data.get("model", "")
+        if not isinstance(q, str) or not 0 < len(q.strip()) <= 6000:
+            raise ValueError("Не удалось прочитать вопрос.")
+        if (not isinstance(options, list) or not engine.MIN_OPTIONS <= len(options) <= engine.MAX_OPTIONS or
+                not all(isinstance(o, str) and 0 < len(o.strip()) <= 3000 for o in options)):
+            raise ValueError("Нужны от 2 до 8 читаемых вариантов ответа.")
+        if not isinstance(model, str) or len(model) > 500:
+            raise ValueError("Проверь выбранную модель.")
+        mode = data.get("selectionMode", "auto")
+        if mode not in ("auto", "single", "multiple"):
+            raise ValueError("Выбери режим ответа.")
+        count = data.get("expectedCount")
+        if count is not None and (type(count) is not int or not 1 <= count <= len(options)):
+            raise ValueError("Число правильных ответов должно укладываться в число видимых вариантов.")
+        hint = quiz_mode.effective_hint(quiz_mode.selection_hint(q, options), mode)
+        if count is not None and hint["expectedCount"] not in (None, count):
+            hint = {"selectionMode": "unknown", "expectedCount": None}
+        if hint["selectionMode"] == "unknown":
+            return {**hint, "choices": [], "choice": None, "evidence": [], "kind": "none", "source": "", "excerpt": "",
+                    "detail": "Указания о числе ответов расходятся. Проверь формулировку и выбери режим ответа."}
+        if count is not None:
+            hint["expectedCount"] = count
+        question = q.strip()
+        options = quiz_mode.clean_options([o.strip() for o in options])
+        ids = data.get("lectureIds")
+        index = self.corpus.index(ids)
+        channel = data.get("channel", "")
+        record = data.get("record") is True and channel in ("browser", "native")
+        capture_ms = data.get("captureMs")
+        if type(capture_ms) not in (int, float) or not 0 <= capture_ms <= 600000:
+            capture_ms = None
+        mode, count = hint["selectionMode"], hint["expectedCount"]
+        result = None
+        journal_warning = ""
+        if channel not in ("training", "check"):
+            try:
+                result = self.journal.lookup(question, options, ids, mode, count)
+            except (sqlite3.Error, OSError):
+                journal_warning = "Журнал временно недоступен."
+        if result is None:
+            try:
+                index = self.meaning.wrap(index, self.embedding_model)
+                # Training distinguishes late correct answers from timeouts.
+                request_timeout = 28 if channel == "training" else 10
+                result = engine.solve(question, options, index, model, base_url=ENDPOINT, timeout=request_timeout,
+                                      selection_mode=mode, expected_count=count)
+            except RuntimeError as error:
+                if not record:
+                    raise
+                result = {"choices": [], "choice": None, "evidence": [], "kind": "error", "detail": str(error)}
+        choices = result["choices"]
+        evidence = [{"choice": item["choice"], "source": item["source"], "excerpt": item["quote"]}
+                    for item in result["evidence"]]
+        response = {**hint, "choice": result["choice"], "choices": choices, "evidence": evidence, "kind": result["kind"],
+                "source": result.get("source", ""), "excerpt": result.get("quote", ""),
+                "detail": result.get("detail") or ("" if choices else
+                ("Подтверждённого ответа в карточках нет. Для разбора лекции выбери модель."
+                 if not model else "В найденном тексте модель не подтвердила ни один вариант."))}
+        if record:
+            elapsed = round(1000 * (time.monotonic() - started))
+            try:
+                response["journalId"] = self.journal.record(question, options, ids, model, mode, count,
+                                                           response, channel, capture_ms, elapsed,
+                                                           capture_trace=data.get("captureTrace"))
+            except (sqlite3.Error, OSError):
+                journal_warning = "Ответ готов, но сохранить разбор на диск не удалось."
+        if journal_warning:
+            response["journalWarning"] = journal_warning
+        return response
+
+    def explain(self, data):
+        entry = self.journal.get(data.get("id"))
+        model = data.get("model", entry["model"])
+        if not isinstance(model, str) or len(model) > 500:
+            raise ValueError("Проверь выбранную модель.")
+        index = self.meaning.wrap(self.corpus.index(entry["lectureIds"]), self.embedding_model)
+        result = engine.explain_option(entry["question"], entry["options"], index, model, data.get("option"),
+                                       selection_mode=entry["selectionMode"], expected_count=entry["expectedCount"],
+                                       base_url=ENDPOINT, timeout=14)
+        return {**result, "excerpt": result["quote"]}
+
+    def server_close(self):
+        if hasattr(self, "native"):
+            self.native.close()
+        super().server_close()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(45)
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def send(self, status, data, content_type="application/json; charset=utf-8"):
+        if not isinstance(data, bytes):
+            data = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def validate(self):
+        port = self.server.server_port
+        valid = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        host = self.headers.get("Host")
+        if (host not in valid or self.headers.get("Origin") not in (None, "http://" + host)
+                or self.headers.get("Sec-Fetch-Site") == "cross-site"):
+            raise PermissionError("Запрос разрешён только из локального окна QuizLens.")
+
+    def body(self, limit):
+        size = int(self.headers.get("Content-Length", "-1"))
+        if not 0 < size <= limit:
+            raise ValueError("Слишком большой или пустой файл запроса.")
+        body = self.rfile.read(size)
+        if len(body) != size:
+            raise ValueError("Загрузка прервана. Выбери файл ещё раз.")
+        return body
+
+    def route(self, write=False):
+        self.validate()
+        url = urlsplit(self.path)
+        path, query = url.path, parse_qs(url.query)
+        if write:
+            if path == "/api/import":
+                name = query.get("name", [""])[0]
+                if (not name or len(name) > 200 or "/" in name or "\\" in name or
+                        re.search(r"[\x00-\x1f]", name) or not recognized(name)):
+                    raise ValueError("Выбери PDF, PPTX, IPYNB, TXT, MD или банк .quiz.json.")
+                raw = self.body(MAX_IMPORT)
+                with tempfile.TemporaryDirectory(prefix="quizlens-") as tmp:
+                    upload = Path(tmp) / name
+                    upload.write_bytes(raw)
+                    return {"lecture": self.server.corpus.add(upload)}
+            if self.headers.get_content_type() != "application/json":
+                raise ValueError("Ожидается JSON.")
+            image_request = path in ("/api/ocr", "/api/detect-layout")
+            byte_limit = 12 * 1024 * 1024 if image_request else 128 * 1024
+            if path == "/api/visual/solve":
+                byte_limit = 8 * 1024 * 1024
+            data = json.loads(self.body(byte_limit))
+            if not isinstance(data, dict):
+                raise ValueError("Некорректный запрос приложения.")
+            if path == "/api/advisor":
+                return model_advice(data)
+            if path == "/api/advisor/benchmark":
+                return model_bench.run_case(data.get("model"), data.get("caseIndex"), base_url=ENDPOINT)
+            if path == "/api/semantic":
+                model = data.get("model", "")
+                if not isinstance(model, str) or len(model) > 500:
+                    raise ValueError("Некорректное имя модели.")
+                with self.server.preferences_lock:
+                    status = {"ready": False}
+                    if model.strip():
+                        all_ids = [item["id"] for item in self.server.corpus.list()]
+                        status = self.server.meaning.prepare(self.server.corpus.index(all_ids), model.strip())
+                    target = self.server.settings_file
+                    pending = target.with_suffix(".tmp")
+                    pending.write_text(json.dumps({"model": model.strip()}), encoding="utf-8")
+                    pending.replace(target)
+                    self.server.embedding_model = model.strip()
+                    return status
+            if image_request:
+                if path == "/api/detect-layout":
+                    parts, aspect = ocr.layout_observations(data.get("image"))
+                    result = assess_layout(parts, aspect=aspect)
+                else:
+                    result = {"texts": ocr.recognize(data.get("image"), data.get("regions"))}
+                if "selectionMode" not in result and result["texts"]:
+                    question, *options = result["texts"]
+                    result.update(quiz_mode.selection_hint(question, options))
+                    result["texts"] = [question, *quiz_mode.clean_options(options)]
+                if result["texts"] and data.get("lectureIds"):
+                    index = self.server.corpus.index(data["lectureIds"])
+                    result["comparisonTexts"] = index.normalize_ocr_fields(result["texts"])
+                return result
+            if path == "/api/solve":
+                return self.server.solve(data)
+            if path == "/api/journal/correct":
+                return {"entry": self.server.journal.save_correction(data.get("id"), data.get("choices"))}
+            if path == "/api/journal/delete":
+                return self.server.journal.delete(data.get("id"))
+            if path == "/api/journal/forget":
+                return {"entry": self.server.journal.forget(data.get("id"))}
+            if path == "/api/journal/explain":
+                return self.server.explain(data)
+            if path == "/api/train/generate":
+                ids = data.get("lectureIds")
+                model = data.get("model")
+                if not isinstance(ids, list) or len(ids) != 1:
+                    raise ValueError("Выбери одну лекцию для подготовки вопросов.")
+                if not isinstance(model, str) or not 0 < len(model.strip()) <= 500:
+                    raise ValueError("Выбери локальную модель для подготовки вопросов.")
+                return training.generate(self.server.corpus.index(ids), model.strip(), base_url=ENDPOINT, timeout=35)
+            if path == "/api/visual/solve":
+                return visual.solve(data, base_url=ENDPOINT, timeout=18)
+            if path.startswith("/api/native/"):
+                return self.server.native.post(path, data)
+            raise FileNotFoundError(path)
+        if path == "/api/ocr-status":
+            return ocr.warmup_status()
+        if path == "/api/health":
+            return {"app": "QuizLens", "version": VERSION, "distribution": release_links(), "nativeCapture": sys.platform == "darwin",
+                    "platform": {"darwin": "macos", "win32": "windows", "linux": "linux"}.get(sys.platform, "unknown")}
+        if path == "/api/advisor":
+            return model_advice()
+        if path == "/api/lectures":
+            return {"lectures": self.server.corpus.list()}
+        if path == "/api/semantic":
+            return {"model": self.server.embedding_model}
+        if path == "/api/embedding-models":
+            return {"models": semantic.list_embedding_models(ENDPOINT, timeout=3)}
+        if path == "/check-questions.json":
+            return ("application/json", (ROOT / "ui" / "check-questions.json").read_bytes())
+        if path == "/api/models":
+            return {"models": engine.list_models(base_url=ENDPOINT, timeout=3)}
+        if path == "/api/journal":
+            return {"entries": self.server.journal.list()}
+        if path == "/api/journal/entry":
+            return {"entry": self.server.journal.get(query.get("id", [""])[0])}
+        if path == "/api/train":
+            return training.builtin()
+        if path == "/api/visual/exercises":
+            return {"items": visual.exercises()}
+        if path == "/api/visual/models":
+            return {"models": visual.vision_models(base_url=ENDPOINT, timeout=3)}
+        if path.startswith("/api/native/"):
+            return self.server.native.get(path, query)
+        if path == "/analytics-demo.quiz.json":
+            return ("application/json", (ROOT / "examples" / path[1:]).read_bytes())
+        aliases = {"/": "index.html", "/demo": "demo.html", "/native": "native.html", "/check": "check.html",
+                   "/journal": "journal.html", "/train": "train.html", "/visual": "visual.html", "/setup": "setup.html"}
+        filename = aliases.get(path, path.lstrip("/"))
+        if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.(?:html|js|css|ico|png|svg)", filename):
+            raise FileNotFoundError(path)
+        return (WEB_TYPES[Path(filename).suffix], (ROOT / "ui" / filename).read_bytes())
+
+    def dispatch(self, write=False):
+        try:
+            result = self.route(write)
+            if isinstance(result, tuple):
+                self.send(200, result[1], result[0])
+            else:
+                self.send(200, result)
+        except (BrokenPipeError, ConnectionResetError, socket.timeout):
+            return
+        except Exception as exc:
+            if isinstance(exc, FileNotFoundError):
+                code, message = 404, "Страница не найдена."
+            elif isinstance(exc, PermissionError):
+                code, message = 403, str(exc)
+            elif isinstance(exc, (ValueError, KeyError, TypeError)):
+                code, message = 400, str(exc)
+            elif isinstance(exc, RuntimeError):
+                code, message = 503, str(exc)
+            else:
+                code, message = 500, "Ошибка QuizLens. Подробности в журнале приложения."
+                import traceback
+                traceback.print_exc()
+            try:
+                self.send(code, {"error": message})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    def do_GET(self):
+        self.dispatch()
+
+    def do_POST(self):
+        self.dispatch(True)
+
+
+def open_ui(url):
+    if sys.platform == "darwin":
+        for browser in ("Google Chrome", "Microsoft Edge"):
+            if subprocess.run(["/usr/bin/open", "-a", browser, url], capture_output=True).returncode == 0:
+                return
+    webbrowser.open(url)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--data-dir", type=Path, default=user_dir())
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+    try:
+        server = QuizServer(("127.0.0.1", args.port), Handler)
+    except OSError as error:
+        if error.errno != errno.EADDRINUSE and getattr(error, "winerror", None) != 10048:
+            raise
+        url = f"http://127.0.0.1:{args.port}"
+        probe = HTTPConnection("127.0.0.1", args.port, timeout=2)
+        try:
+            probe.request("GET", "/api/health")
+            with probe.getresponse() as response:
+                existing = json.loads(response.read(1024)) if response.status == 200 else None
+        except (OSError, HTTPException, ValueError):
+            existing = None
+        finally:
+            probe.close()
+        if isinstance(existing, dict) and existing.get("app") == "QuizLens":
+            if existing.get("version") != VERSION:
+                reported = str(existing.get("version", ""))
+                running = reported if re.fullmatch(r"[0-9.]{1,20}", reported) else "другой версии"
+                raise SystemExit(
+                    f"На порту {args.port} уже запущен QuizLens {running}. "
+                    f"Для запуска QuizLens {VERSION} нажми Ctrl+C в окне Терминала предыдущего запуска "
+                    "и снова открой приложение."
+                )
+            print(f"QuizLens {VERSION} уже работает · {url}", flush=True)
+            if not args.no_browser:
+                open_ui(url)
+            return
+        raise SystemExit("Порт занят. Запусти с параметром --port 8766.")
+    try:
+        server.corpus = Corpus(args.data_dir / "lectures")
+        server.journal = Journal(args.data_dir)
+        server.meaning = semantic.SemanticStore(args.data_dir, ENDPOINT)
+        server.preferences_lock = threading.Lock()
+        server.settings_file = args.data_dir / "settings.json"
+        server.embedding_model = ""
+        if server.settings_file.is_file():
+            try:
+                value = json.loads(server.settings_file.read_text(encoding="utf-8")).get("model")
+                if isinstance(value, str):
+                    server.embedding_model = value
+            except (ValueError, OSError, AttributeError):
+                pass
+        server.native = NativeMode(server.solve, server.corpus.index)
+        ocr.start_prewarm()
+        url = f"http://127.0.0.1:{server.server_port}"
+        print(f"QuizLens {VERSION} · {url}", flush=True)
+        if not args.no_browser:
+            threading.Thread(target=open_ui, args=(url,), daemon=True).start()
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        ocr.shutdown()
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install optional PDF and image test dependencies
+        run: python -m pip install --disable-pip-version-check Pillow pypdf
+      - name: Install Linux OCR and test font
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tesseract-ocr-eng tesseract-ocr-rus tesseract-ocr fonts-dejavu-core poppler-utils
+      - name: Run application tests
+        run: python -m unittest discover -s tests
+      - name: Run interface tests
+        run: node --test tests/*.cjs
+      - name: Build and verify a Mac development archive
+        if: runner.os == 'macOS' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          python packaging/package_mac.py --output dist/QuizLens-Mac.zip
+          python packaging/smoke_archive.py dist/QuizLens-Mac.zip --signing unsigned
+      - name: Build and launch the Windows archive
+        if: runner.os == 'Windows' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          python packaging/package_windows.py --output dist/QuizLens-Windows.zip
+          python packaging/smoke_archive.py dist/QuizLens-Windows.zip

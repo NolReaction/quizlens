@@ -1,0 +1,11 @@
+main.check{max-width:900px;margin:36px auto 70px}.check h1{margin-bottom:23px}.check .panel{margin:15px 0;padding:22px 26px}.check p{margin:.8em 0 1.2em;color:var(--muted)}.check p:empty{display:none}.check label{font-weight:600;margin:15px 0 6px;display:block}.check input{width:100%;background:#121b22;border:1px solid #3e4e5a;border-radius:7px;padding:9px;color:var(--ink)}.check .line{display:flex;gap:10px;align-items:center;margin:8px 0 13px;flex-wrap:wrap}.check select{flex:1;min-width:170px}.check details summary{font-weight:650;color:var(--ink);font-size:1rem}.check ol:empty{display:none}.check li{padding:9px 0}.check li small{display:block;color:var(--sub);margin-top:4px}.check .ok{color:var(--mint)}.check .warn{color:var(--warn)}
+.test-actions{display:flex;gap:10px;flex-wrap:wrap}.test-actions .button{min-height:40px}.check p#progress{font-variant-numeric:tabular-nums;color:var(--mint);margin-bottom:.4em}.check li small.ok{color:var(--mint)}.check li small.warn{color:var(--warn)}.check p#message{font-size:.94rem}.check li{overflow-wrap:anywhere}
+.check .ocr-difference{border-left:2px solid var(--border);padding-left:10px;margin:8px 0}
+.check .ocr-difference .diff-label{font-weight:650;color:var(--ink)}
+.check .diff-line{white-space:pre-wrap}
+.check .diff-line mark{background:#584735;color:#ffe3ad;border-radius:2px}
+.check .diff-unicode{font-family:ui-monospace,monospace;font-size:.75rem}
+.check p.ocr-status{font-size:.88rem;margin:.65em 0}
+.check p.ocr-status.ok{color:var(--mint)}.check p.ocr-status.warn{color:var(--warn)}
+.check details.evidence{border:0;margin:5px 0;padding:0}
+.check details.evidence summary{color:var(--muted);font-size:.83rem;font-weight:500}

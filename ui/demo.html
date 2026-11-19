@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Пробный квиз · Метрики в аналитике</title>
+  <link rel="stylesheet" href="demo.css">
+  <script defer src="demo.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header class="heading">
+      <div><span class="overline" id="category">Пробный квиз</span><h1 id="title">Метрики в аналитике</h1></div>
+      <div class="settings">
+        <label class="duration"><span id="mode-label">Режим</span>
+          <select id="mode"><option value="single">Один ответ</option><option value="multiple">Несколько ответов</option><option value="variable">От 2 до 8 вариантов</option></select>
+        </label>
+        <label class="duration"><span id="language-label">Язык</span>
+          <select id="language"><option value="ru">Русский</option><option value="en">English</option></select>
+        </label>
+        <label class="duration"><span id="duration-label">На вопрос</span>
+          <select id="duration"><option value="20">20 секунд</option><option value="15">15 секунд</option><option value="0">Без таймера</option></select>
+        </label>
+      </div>
+    </header>
+    <section id="round" aria-label="Вопрос квиза">
+      <div class="progress">
+        <span id="position"></span>
+        <span id="clock" role="timer"></span>
+      </div>
+      <div class="progress-track" aria-hidden="true"><div id="bar"></div></div>
+      <h2 id="question"></h2>
+      <div id="options" aria-label="Варианты ответа">
+        <button class="answer" type="button"><span class="marker">1</span><span class="option-text"></span></button>
+        <button class="answer" type="button"><span class="marker">2</span><span class="option-text"></span></button>
+        <button class="answer" type="button"><span class="marker">3</span><span class="option-text"></span></button>
+        <button class="answer" type="button"><span class="marker">4</span><span class="option-text"></span></button>
+      </div>
+    </section>
+    <section id="result" hidden><span class="overline" id="result-label">Квиз завершён</span><h2 id="score"></h2></section>
+    <footer class="controls">
+      <p id="feedback" role="status"></p>
+      <button id="action" type="button"></button>
+    </footer>
+    <noscript>Включите JavaScript в браузере, чтобы запустить квиз.</noscript>
+  </main>
+</body>
+</html>

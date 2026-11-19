@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Графики и таблицы · QuizLens</title>
+<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/visual.css"><script defer src="/visual.js"></script></head>
+<body>
+<header class="top"><div class="bar"><a class="brand" href="/"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
+<nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a></nav></div></header>
+<main class="visual-main">
+<div class="page-title"><h1>Графики и таблицы</h1></div>
+<div class="switcher" aria-label="Источник изображения"><button type="button" id="practiceTab" aria-pressed="true">Примеры</button><button type="button" id="imageTab" aria-pressed="false">Свой кадр</button></div>
+<div class="visual-grid">
+<section class="panel">
+<div id="practice"><label for="exercise">Задание</label><select id="exercise" disabled><option>Загрузка…</option></select>
+<canvas id="chart" width="1120" height="600" role="img" aria-label="Данные задания"></canvas>
+<details class="table-data"><summary>Открыть данные текстом</summary><div id="readableData"></div></details>
+<h2 id="practiceQuestion"></h2><div id="picks" class="picks" role="group" aria-label="Варианты ответа"></div>
+<p id="grade" class="result-line" role="status"></p><button id="next" class="button" hidden>Следующее задание</button></div>
+<div id="custom" hidden>
+<div class="section-head"><h2>Изображение квиза</h2><button type="button" id="stop" class="mini-button" hidden>Отключить окно</button></div>
+<div class="source-actions"><button class="button primary" id="share">Выбрать окно</button><label class="button upload" for="file">Открыть файл</label><input type="file" id="file" class="sr-only" accept="image/png,image/jpeg,image/webp"></div>
+<p id="photoStatus" class="hint" role="status">На кадре должны быть видны данные и подписи осей или заголовки столбцов.</p>
+<video id="video" hidden muted autoplay playsinline aria-label="Прямой просмотр выбранного окна"></video>
+<button class="button" id="freeze" hidden>Взять текущий кадр</button>
+<div id="photoBox" hidden><canvas id="photo" aria-label="Кадр для отправки в локальную модель"></canvas><div id="cropBox" hidden></div></div>
+<div class="source-actions" id="cropActions" hidden><button class="mini-button" id="crop">Обрезать кадр</button><button class="mini-button" id="resetCrop" hidden>Весь кадр</button></div>
+<details id="wording"><summary>Ввести вопрос и варианты вручную</summary><p class="hint">Если вопрос и варианты полностью видны на кадре, модель прочитает их сама.</p>
+<label for="manualQ">Вопрос</label><textarea id="manualQ" rows="2" maxlength="6000"></textarea>
+<label for="manualOptions">Варианты, по одному на строку</label><textarea id="manualOptions" rows="4" placeholder="Первый вариант&#10;Второй вариант"></textarea></details>
+<label for="selection">Сколько вариантов выбрать</label><select id="selection"><option value="auto">По условию</option><option value="single">Один</option><option value="multiple">Несколько</option></select>
+</div></section>
+<aside class="panel model-panel"><h2>Ответ по изображению</h2>
+<label for="model">Локальная модель</label><div class="model-row"><select id="model"><option value="">Загрузка…</option></select><button class="mini-button" id="refresh">Обновить</button></div>
+<p class="hint" id="modelStatus" role="status"></p>
+<details id="otherModels"><summary>Указать модель вручную</summary><label for="customModel">Идентификатор из Bionic или LM Studio</label><input id="customModel" maxlength="500" autocomplete="off" placeholder="Идентификатор модели">
+<label class="confirm"><input id="confirmModel" type="checkbox">Моя модель принимает изображения</label></details>
+<button type="button" class="button primary" id="solve" disabled>Разобрать изображение</button>
+<div id="answerPanel" role="status" aria-live="polite"></div>
+</aside></div></main></body></html>

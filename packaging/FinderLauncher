@@ -1,0 +1,7 @@
+#!/bin/bash
+set -u
+resource_dir="$(cd "$(dirname "$0")/../Resources/quiz-lens" && pwd -P)" || exit 1
+if ! /usr/bin/open -a Terminal "$resource_dir/launch.command"; then
+    /usr/bin/osascript -e 'display alert "QuizLens" message "Не удалось открыть Терминал. Распакуй архив целиком и запусти Start.command рядом с QuizLens.app." as critical'
+    exit 1
+fi

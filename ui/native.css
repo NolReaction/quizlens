@@ -1,0 +1,26 @@
+#native-main { max-width:1200px; }
+#native-main .native-field { display:block; color:var(--muted); font-size:.85rem; margin-bottom:5px; }
+#start { margin:14px 0 7px; }
+#live .capture-controls { margin:0; }
+#mark { margin-top:22px; }
+#mark .hint { margin:5px 0 12px; }
+#stage { display:block; position:relative; background:#0a1115; border-radius:4px; overflow:hidden; touch-action:none; user-select:none; cursor:crosshair; width:100%; }
+#stage img { display:block; width:100%; height:auto; user-select:none; }
+#stage .area b { font-size:12px; }
+.native-lectures { display:grid; gap:.32rem; max-height:230px; overflow:auto; }
+.native-lectures label { display:flex; align-items:flex-start; gap:.45rem; cursor:pointer; overflow-wrap:anywhere; }
+.native-lectures input { margin-top:.38em; accent-color:var(--mint); }
+#native-main select { width:100%; }
+#native-main .answer-setting { display:flex; align-items:center; flex-wrap:wrap; gap:.7rem; margin:0 0 1rem; }
+#native-main .answer-setting select { width:auto; min-width:9rem; }
+body.reading #native-main .answer-setting { max-width:760px; margin:0 auto 1rem; }
+#native-main .hint { min-height:1.2rem; }
+#live { max-width:760px; margin:auto; }
+.native-answer { display:grid; gap:.35em; font-size:clamp(1.45rem, 4vw, 2.6rem); line-height:1.1; font-weight:650; color:var(--mint); overflow-wrap:anywhere; }
+#state { margin:10px 0; }
+#evidence details { margin:.6rem 0; }
+#evidence blockquote { margin:8px 0; padding:0 10px; border-left:2px solid var(--mint); color:var(--muted); }
+#options { padding-left:1.5rem; }
+#current-question { margin-top:10px; }
+body.reading #native-main { padding-top:18px; }
+body.reading .top, body.reading .page-title { display:none; }

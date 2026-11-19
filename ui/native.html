@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>QuizLens · Захват окна macOS</title>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/native.css">
+  <script defer src="/visual-transfer.js"></script>
+  <script defer src="/native.js"></script>
+</head>
+<body>
+<header class="top"><div class="bar">
+  <a class="brand" href="/"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
+  <nav class="primary-nav" aria-label="Основные разделы">
+    <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+  </nav>
+</div></header>
+<main id="native-main">
+  <div class="page-title"><h1>Захват окна macOS</h1><a href="/" class="subtle">Захват вкладки →</a></div>
+  <div class="answer-setting"><label for="selection-mode">Режим ответа</label>
+    <select id="selection-mode"><option value="auto">Авто</option><option value="single">Один</option><option value="multiple">Несколько</option></select>
+  </div>
+  <div id="setup" class="workspace">
+    <section class="panel">
+      <div class="section-head"><h2>Окно квиза</h2><button id="list" class="button primary" type="button">Найти окна</button></div>
+      <label class="native-field" for="windows">Доступные окна</label><select id="windows" disabled><option value="">Нажми «Найти окна»</option></select>
+      <div class="capture-controls"><button id="auto" class="button run" type="button" disabled>Автозахват</button>
+      <button id="preview" class="button" type="button" disabled>Разметить вручную</button></div>
+      <p id="window-message" class="hint" role="status">Можно подключить окно до первого вопроса. Когда появится вопрос, QuizLens найдёт его варианты.</p>
+      <div id="mark" hidden>
+        <label class="area-count" for="area-count">Число вариантов для ручной разметки
+          <select id="area-count"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select>
+        </label>
+        <h2 id="mark-step"></h2>
+        <p class="hint">Обведи весь квиз и нажми «Искать внутри рамки» или разметь вопрос и каждый вариант отдельно.</p>
+        <div id="stage" aria-label="Кадр для разметки"><img id="still" alt="Окно квиза" draggable="false"><div id="rects" class="areas"></div></div>
+        <div class="capture-controls">
+          <button type="button" id="focus" class="button" disabled>Искать внутри рамки</button>
+          <button type="button" id="undo" class="button">Шаг назад</button>
+          <button type="button" id="reuse" class="button" hidden>Прошлая разметка</button>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="section-head"><h2>Лекции</h2><label class="mini-button clickable" for="files">+ Добавить</label><input id="files" class="sr-only" type="file" multiple accept=".pptx,.pdf,.txt,.md,.json,.ipynb"></div>
+      <div id="lectures" class="native-lectures"></div><p id="files-info" class="hint" role="status"></p>
+      <div class="setting-line"></div><div class="section-head model-head"><label for="model">Локальная модель</label><button class="mini-button" id="models" type="button">Обновить</button></div>
+      <select id="model"><option value="">Карточки и поиск (без модели)</option></select><p id="model-info" class="hint"></p>
+      <details class="capture-settings"><summary>Параметры и проверка</summary>
+        <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом Mac</label>
+        <div class="result-tools"><a class="subtle" href="/check">Проверить модель и OCR</a><a class="subtle" href="/demo?lobby=1" target="_blank" rel="noopener">Пробный квиз ↗</a></div>
+      </details>
+      <button type="button" id="start" class="button run" hidden disabled>Начать чтение по разметке</button>
+      <p class="hint" id="ready" role="status"></p>
+    </section>
+  </div>
+  <section id="live" class="panel" hidden>
+    <div class="section-head"><h2>Ответ</h2><div class="capture-controls"><button type="button" class="button" id="manual-live" hidden>Разметить вручную</button><button type="button" class="button" id="stop">Остановить</button></div></div>
+    <div id="live-content" aria-live="polite" aria-atomic="true">
+      <div id="answer" class="native-answer"></div>
+      <p id="state" class="hint"></p>
+      <div id="evidence"></div>
+    </div>
+    <div class="result-tools"><a id="review" class="subtle" href="/journal" target="_blank" rel="noopener" hidden>Разобрать ответ ↗</a>
+      <a id="visual" class="subtle" href="/visual" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
+    <details><summary>Распознанный текст</summary><p id="current-question"></p><ol id="options"></ol></details>
+  </section>
+</main>
+</body></html>

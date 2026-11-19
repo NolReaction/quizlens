@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>QuizLens · Журнал</title>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/journal.css">
+  <script src="/journal.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="bar">
+  <a class="brand" href="/"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
+  <nav class="primary-nav" aria-label="Основные разделы"><a class="demo-link" href="/">Захват</a><a class="demo-link" href="/train">Тренировка</a><a class="demo-link" href="/journal" aria-current="page">Журнал</a></nav>
+</div></header>
+<main>
+  <div class="page-title"><h1>Журнал вопросов</h1><button class="mini-button" id="refresh" type="button">Обновить</button></div>
+  <p role="status" id="notice" class="journal-notice" hidden></p>
+  <section id="empty" class="panel empty-journal" hidden><h2>Здесь появятся вопросы из захвата</h2><p>Подключи окно квиза. После распознавания сможешь вернуться к вопросу, увидеть подсказку и исправить ответ.</p><a class="button primary" href="/">Открыть захват</a> <a class="mini-button" href="/check">Проверка устройства</a></section>
+  <div id="workspace" class="journal-grid" hidden>
+    <aside class="panel" aria-label="Список вопросов">
+      <div class="section-head"><h2>Последние вопросы</h2><small id="entryCount"></small></div>
+      <div id="entryList" class="entry-list"></div>
+    </aside>
+    <article class="panel journal-detail" id="entry" aria-label="Разбор вопроса"></article>
+  </div>
+</main>
+</body>
+</html>
