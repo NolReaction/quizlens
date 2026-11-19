@@ -32,6 +32,7 @@ const card = {topic:'Метрики', options:['50 %','75 %'], mode:'single', so
 async function harness({cards=[card], response, noModel=false, saved={}, hash='', modelWait}={}) {
   const elements = {}, storage = new Map(Object.entries(saved)), calls = [], jobs = new Map();
   let clock=0, last=0;
+  const events={}, location={hash,pathname:'/train',search:''};
   const get = id => elements[id] ||= new Element();
   get('material').add(new Element('option','Метрики','builtin'));
   const schedule = (fn, duration) => {jobs.set(++last,{fn,duration});return last;};
@@ -48,13 +49,15 @@ async function harness({cards=[card], response, noModel=false, saved={}, hash=''
   };
   const ctx = vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)},
     Option:class extends Element {constructor(text,value){super('option',text,value);}},fetch:api,
-    location:{hash},
+    location, window:{addEventListener:(name,listener)=>{events[name]=listener;}},
+    history:{state:null, replaceState:(_,__,url)=>{location.hash=new URL(url,'http://localhost').hash;}},
     performance:{now:()=>clock},setInterval:schedule,setTimeout:schedule,
     clearTimeout:n=>jobs.delete(n),clearInterval:n=>jobs.delete(n),AbortController,
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)}});
   vm.runInContext(script,ctx);
   await tick();
-  return {get,ctx,calls,storage,setTime:v=>clock=v,fire:delay=>Array.from(jobs.values()).find(j=>j.duration===delay)?.fn()};
+  return {get,ctx,calls,storage,location,goHash:hash=>{location.hash=hash;events.hashchange();},
+    setTime:v=>clock=v,fire:delay=>Array.from(jobs.values()).find(j=>j.duration===delay)?.fn()};
 }
 
 test('manual practice works without model; contrast uses same order, shows both explanations and scores once', async () => {
@@ -168,4 +171,24 @@ test('study uses verified cards for the selected lecture and never falls back to
   h.get('closeCards').onclick();
   h.get('material').value='one';h.get('material').onchange();
   assert.equal(h.get('cards').disabled,true);
+});
+
+test('navigating within /train opens and closes cards without interrupting a timed round', async () => {
+  const h=await harness({noModel:true});
+  h.get('cards').onclick();
+  assert.equal(h.location.hash,'#cards');
+  h.get('closeCards').onclick();
+  assert.equal(h.location.hash,'');
+  h.goHash('#cards');
+  assert.equal(h.get('flashcards').hidden,false);
+  h.goHash('');
+  assert.equal(h.get('flashcards').hidden,true);
+  h.goHash('#cards');
+  assert.equal(h.get('flashcards').hidden,false);
+  h.get('followingCard').onclick();
+  h.get('practice').onclick();
+  h.goHash('#cards');
+  assert.equal(h.get('flashcards').hidden,true);
+  assert.equal(h.get('round').hidden,false);
+  assert.equal(h.location.hash,'');
 });

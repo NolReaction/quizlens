@@ -114,13 +114,23 @@ function cite(card) {
   return details;
 }
 
+function setCardsUrl(open) {
+  if (open && location.hash !== '#cards') {
+    history.replaceState(history.state, '', location.pathname + location.search + '#cards');
+  } else if (!open && location.hash === '#cards') {
+    history.replaceState(history.state, '', location.pathname + location.search);
+  }
+}
+
 function openCards() {
   if (!deck.length || busy || session || studySession) return;
   // Keep each question's wording and answer key together when navigating back.
   studySession = {position:0, entries:deck.map(card => ({
     card, variant:card.variants[Math.floor(Math.random() * card.variants.length)]
   }))};
+  setCardsUrl(true);
   byId('setup').hidden = true;
+  byId('report').hidden = true;
   byId('flashcards').hidden = false;
   renderCard();
 }
@@ -150,9 +160,19 @@ function renderCard() {
 
 function closeCards() {
   studySession = null;
+  setCardsUrl(false);
   byId('flashcards').hidden = true;
   byId('setup').hidden = false;
   byId('cards').focus();
+}
+
+function syncCardsRoute() {
+  if (location.hash === '#cards') {
+    if (session || busy || (builtinDeck && !deck.length)) setCardsUrl(false);
+    else openCards();
+  } else if (studySession) {
+    closeCards();
+  }
 }
 
 function createDrafts(cards) {
@@ -429,6 +449,7 @@ byId('localModel').onchange = updateSetup;
 byId('refresh').onclick = loadModels;
 byId('generate').onclick = generate;
 byId('cards').onclick = openCards;
+window.addEventListener('hashchange', syncCardsRoute);
 byId('flipCard').onclick = () => showCardAnswer(byId('cardAnswer').hidden);
 byId('previousCard').onclick = () => {
   if (!studySession || studySession.position === 0) return;
@@ -467,7 +488,7 @@ async function init() {
       byId('material').add(new Option('Свои вопросы · ' + item.name, item.id));
     }
     selectMaterial();
-    if (typeof location !== 'undefined' && location.hash === '#cards') openCards();
+    syncCardsRoute();
     await loadModels();
   } catch (error) { byId('status').textContent = error.message; }
 }
