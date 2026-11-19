@@ -46,12 +46,12 @@ jobs:
       - name: Run interface tests
         run: node --test tests/*.cjs
       - name: Build and verify a Mac development archive
-        if: runner.os == 'macOS' && !startsWith(github.ref, 'refs/tags/')
+        if: runner.os == 'macOS' && !startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release/')
         run: |
           python packaging/package_mac.py --output dist/QuizLens-Mac.zip
           python packaging/smoke_archive.py dist/QuizLens-Mac.zip --signing unsigned
       - name: Build and launch the Windows archive
-        if: runner.os == 'Windows' && !startsWith(github.ref, 'refs/tags/')
+        if: runner.os == 'Windows' && !startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release/')
         run: |
           python packaging/package_windows.py --output dist/QuizLens-Windows.zip
           python packaging/smoke_archive.py dist/QuizLens-Windows.zip

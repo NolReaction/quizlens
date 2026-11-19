@@ -187,7 +187,7 @@ class SystemVision(unittest.TestCase):
         drawing = r"""
 import AppKit
 let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 900, pixelsHigh: 350,
-    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, colorSpaceName: .deviceRGB,
+    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
     bytesPerRow: 0, bitsPerPixel: 0)!
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)

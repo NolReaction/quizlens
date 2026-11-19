@@ -1,18 +1,26 @@
 name: Publish release
 
 on:
+  create:
   push:
+    branches: ['release/v*']
     tags: ['v*']
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # A tag and its matching release branch share the same publishing lock.
+  group: publish-${{ github.ref_type == 'tag' && format('release/{0}', github.ref_name) || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   tests:
+    # The create event also fires when the GitHub UI or API creates a branch.
+    # A new Git branch may emit both create and push, so handle its creation once.
+    if: >-
+      (github.event_name == 'create' && github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/v')) ||
+      (github.event_name == 'push' && !github.event.deleted && (github.ref_type == 'tag' || !github.event.created))
     uses: ./.github/workflows/ci.yml
 
   mac:
@@ -29,7 +37,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Check release tag and record the repository for share links
-        run: python3 packaging/release_assets.py prepare "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+        run: python3 packaging/release_assets.py prepare "${GITHUB_REF_NAME#release/}" "$GITHUB_REPOSITORY"
       - id: package
         name: Package macOS and verify signing status
         env:
@@ -67,7 +75,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Check release tag and record the repository for share links
-        run: python packaging/release_assets.py prepare "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY"
+        run: python packaging/release_assets.py prepare "${GITHUB_REF_NAME#release/}" "$GITHUB_REPOSITORY"
       - name: Build and start the Windows archive
         run: |
           python packaging/package_windows.py --output dist/QuizLens-Windows.zip
@@ -99,7 +107,7 @@ jobs:
       - name: Generate manifest, guide and SHA-256 checksums
         env:
           SIGNING: ${{ needs.mac.outputs.signing }}
-        run: python3 packaging/release_assets.py assemble "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" "$SIGNING" dist
+        run: python3 packaging/release_assets.py assemble "${GITHUB_REF_NAME#release/}" "$GITHUB_REPOSITORY" "$SIGNING" dist
       - name: Publish the complete release
         env:
           GH_TOKEN: ${{ github.token }}
