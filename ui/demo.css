@@ -11,6 +11,10 @@ body { margin: 0; min-height: 100vh; background: #eef4f1; color: var(--ink); }
 .page { width: min(890px, calc(100% - 32px)); margin: clamp(12px, 5vh, 50px) auto; padding: clamp(18px, 4vw, 44px); border: 1px solid #cddbd6; background: #fff; border-radius: 20px; }
 .heading, .progress, .controls { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .overline { color: var(--accent); font-weight: 700; font-size: 13px; }
+#lobby { margin-top: 22px; padding: 18px 20px; border-radius: 12px; background: #eef5f2; }
+#lobby h2 { margin: 0 0 6px; font-size: 20px; }
+#lobby p { margin: 0; max-width: 64ch; line-height: 1.5; }
+#action { min-height: 48px; }
 h1 { margin: 6px 0 0; font-size: clamp(21px, 3vw, 32px); line-height: 1.13; }
 .duration { display: grid; gap: 3px; font-weight: 600; font-size: 12px; color: var(--muted); flex-shrink: 0; }
 .settings { display: flex; flex-wrap: wrap; gap: 6px; }

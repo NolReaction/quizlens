@@ -2,19 +2,33 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Подбор модели · QuizLens</title>
+  <title>LM Studio и локальная модель · QuizLens</title>
   <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/setup.css"><script src="/setup.js" defer></script>
 </head>
 <body>
 <header class="top"><div class="bar">
   <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
-  <nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a></nav>
+  <nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train">Тренировка</a><a href="/setup#connection" aria-current="page">LM Studio</a><a href="/journal">Журнал</a></nav>
 </div></header>
 <main class="advisor">
-  <a class="back-link" href="/">← К захвату</a>
-  <h1>Подбор модели</h1>
-  <p class="lead">Узнай, какую модель скачать для ответов по лекциям и успевает ли она за 15 секунд.</p>
-  <section class="panel device">
+  <h1 id="connection">LM Studio и локальная модель</h1>
+  <p class="lead">QuizLens читает окно и находит выдержки из лекций. LM Studio или Bionic запускает на твоём компьютере модель, которая выбирает ответ по этим выдержкам.</p>
+  <ol class="connection-steps" aria-label="Подключение модели">
+    <li><h2>Установи приложение</h2>
+      <p>На странице загрузки открой блок <b>Download LM Studio</b> и выбери свою систему. Уже пользуешься Bionic с локальной моделью? Переходи к серверу.</p>
+      <a class="button" href="https://lmstudio.ai/download" target="_blank" rel="noopener noreferrer">Скачать LM Studio ↗</a>
+    </li>
+    <li><h2>Загрузи модель</h2>
+      <p>Подбери модель для своего компьютера. Найди её в <b>Discover</b> в LM Studio или в <b>Settings → Explore</b> в Bionic. Скачай рекомендованный файл и выбери модель в чате.</p>
+      <a class="button" href="#choose-model">Подобрать модель</a>
+    </li>
+    <li><h2>Включи локальный сервер</h2>
+      <p><b>LM Studio</b><br>Developer → Start Server</p>
+      <p><b>Bionic</b><br>Settings → Local Model API → Local API server</p>
+      <a class="button primary" href="#local-panel" id="jump-check">Проверить подключение</a>
+    </li>
+  </ol>
+  <section class="panel device" id="choose-model">
     <div class="device-head"><h2 id="device-title">Этот компьютер</h2><button type="button" id="device-switch" class="quiet" aria-controls="profile-form" aria-expanded="false">Указать характеристики</button></div>
     <p id="hardware" role="status">Определяем процессор и память…</p>
     <form id="profile-form" hidden>
@@ -34,26 +48,22 @@
   </section>
   <p id="advice-error" class="issue" role="alert" hidden></p>
   <section id="recommendation" class="panel recommendation" aria-labelledby="recommendation-heading" hidden>
-    <h2 id="recommendation-heading">С чего начать</h2>
+    <h2 id="recommendation-heading">Модель для твоего компьютера</h2>
     <div id="primary-model"></div>
     <details id="alternative" hidden><summary>Ещё один вариант</summary><div id="other-model"></div></details>
     <ul id="notes" class="notes" hidden></ul>
-    <details id="install"><summary>Как скачать и подключить модель</summary>
-      <ol class="steps">
-        <li>Открой Bionic или <a href="https://lmstudio.ai/" target="_blank" rel="noopener noreferrer">установи LM Studio ↗</a>. В каталоге локальных моделей введи название выше и выбери указанный файл GGUF. Обозначение Q4_K_M в имени указывает на компактную версию модели. Если каталог недоступен, скачай этот файл по ссылке в браузере.</li>
-        <li>Открой чат, выбери скачанную модель и загрузи её. В Bionic включи <strong>Settings → Local Model API → Local API server</strong>. В LM Studio открой <strong>Developer → Start Server</strong>.</li>
-        <li>На компьютере, где загружена модель, открой автоматический подбор, нажми <strong>«Обновить список»</strong> и выбери модель. Проверка отправит ей три текстовых вопроса на этом компьютере.</li>
-      </ol>
-      <p class="small muted">Для файла, скачанного в браузере, в LM Studio доступна команда <code>lms import</code>. <a href="https://lmstudio.ai/docs/cli/local-models/import" target="_blank" rel="noopener noreferrer">Инструкция по импорту ↗</a></p>
+    <details id="install"><summary>Если поиск в каталоге не работает</summary>
+      <p class="small muted">Нажми «Скачать GGUF», чтобы получить файл модели через браузер. Для импорта в классический LM Studio введи в терминале <code>lms import</code>, пробел и путь к скачанному файлу в кавычках. После импорта выбери модель в чате. <a href="https://lmstudio.ai/docs/cli/local-models/import" target="_blank" rel="noopener noreferrer">Инструкция по импорту ↗</a></p>
     </details>
   </section>
-  <section id="local-panel" class="panel local-models" aria-labelledby="local-title">
-    <div class="device-head"><h2 id="local-title">Проверить на этом компьютере</h2><button type="button" class="mini-button" id="refresh">Обновить список</button></div>
-    <p class="muted" id="server-status" role="status"></p>
+  <section id="local-panel" class="panel local-models" aria-labelledby="local-title" tabindex="-1">
+    <div class="device-head"><h2 id="local-title">Проверка подключения</h2><button type="button" class="button" id="refresh">Обновить список</button></div>
+    <p class="endpoint">Адрес сервера по умолчанию <code>http://127.0.0.1:1234/v1</code>. Для локальных моделей вход в аккаунт не требуется.</p>
+    <p class="connection-state" id="server-status" role="status">Ищем локальный сервер…</p>
     <div id="available" hidden>
       <label for="installed-model">Модель для проверки</label><select id="installed-model"></select>
-      <p class="small muted">Три вопроса по готовому тексту. Время включает поиск по лекции и ответ модели. Первый запрос может дополнительно загрузить модель.</p>
-      <div class="actions"><button type="button" class="button primary" id="benchmark">Проверить на трёх вопросах</button><button type="button" class="button" id="apply-model">Выбрать для захвата</button></div>
+      <p class="small muted">Выбери текстовую модель, например Qwen. Три вопроса покажут, отвечает ли она по лекции и успевает ли за 15 секунд. Первый запрос может занять дольше из-за загрузки модели.</p>
+      <div class="actions"><button type="button" class="button primary" id="benchmark">Проверить на трёх вопросах</button><button type="button" class="button" id="apply-model">Выбрать для захвата</button><a class="back-link" href="/">К захвату →</a></div>
       <p class="small" id="applied" role="status"></p>
     </div>
     <div id="bench-result" hidden><h3>Результат проверки</h3><p id="bench-summary" role="status"></p><ol id="bench-cases"></ol><a href="/check" class="back-link">Проверить вместе с распознаванием экрана →</a></div>
@@ -62,7 +72,7 @@
       <p class="small muted">Последняя полная проверка каждой модели в этом браузере. Время после первого запроса — среднее по второму и третьему вопросам.</p>
       <div class="compare-scroll"><table><thead><tr><th scope="col">Модель</th><th scope="col">Верно за 15 с</th><th scope="col">После первого запроса</th></tr></thead><tbody id="history-rows"></tbody></table></div>
     </section>
-    <p class="small muted" id="cards-only" hidden>Готовые карточки можно открыть уже сейчас. <a href="/" class="back-link">К захвату →</a></p>
+    <p class="small muted" id="cards-only" hidden>Пока модель скачивается, можно тренироваться на готовых вопросах. <a href="/train#cards" class="back-link">Открыть карточки →</a></p>
   </section>
 </main></body>
 </html>

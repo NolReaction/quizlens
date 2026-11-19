@@ -5,6 +5,7 @@
   <meta name="color-scheme" content="dark">
   <title>QuizLens · Захват окна macOS</title>
   <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/native.css">
+  <script defer src="/demo-window.js"></script>
   <script defer src="/visual-transfer.js"></script>
   <script defer src="/native.js"></script>
 </head>
@@ -12,19 +13,22 @@
 <header class="top"><div class="bar">
   <a class="brand" href="/"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
   <nav class="primary-nav" aria-label="Основные разделы">
-    <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+    <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/setup#connection">LM Studio</a><a href="/journal">Журнал</a>
   </nav>
 </div></header>
 <main id="native-main">
-  <div class="page-title"><h1>Захват окна macOS</h1><a href="/" class="subtle">Захват вкладки →</a></div>
+  <div class="page-title native-title"><h1>Захват окна macOS</h1><a href="/" class="button">К захвату вкладки</a></div>
   <div class="answer-setting"><label for="selection-mode">Режим ответа</label>
     <select id="selection-mode"><option value="auto">Авто</option><option value="single">Один</option><option value="multiple">Несколько</option></select>
   </div>
   <div id="setup" class="workspace">
     <section class="panel">
-      <div class="section-head"><h2>Окно квиза</h2><button id="list" class="button primary" type="button">Найти окна</button></div>
+      <h2>Окно квиза</h2>
+      <p class="hint native-intro">Открой квиз в отдельном окне, затем найди его в списке macOS. Для первой проверки подойдёт пробный квиз.</p>
+      <div class="capture-controls native-entry-actions"><button id="list" class="button primary" type="button">Найти окна</button>
+        <a class="button" href="/demo?lobby=1" target="quizlens-demo" data-demo-window>Открыть пробный квиз ↗</a></div>
       <label class="native-field" for="windows">Доступные окна</label><select id="windows" disabled><option value="">Нажми «Найти окна»</option></select>
-      <div class="capture-controls"><button id="auto" class="button run" type="button" disabled>Автозахват</button>
+      <div class="capture-controls"><button id="auto" class="button run" type="button" disabled>Начать автозахват</button>
       <button id="preview" class="button" type="button" disabled>Разметить вручную</button></div>
       <p id="window-message" class="hint" role="status">Можно подключить окно до первого вопроса. Когда появится вопрос, QuizLens найдёт его варианты.</p>
       <div id="mark" hidden>
@@ -42,13 +46,14 @@
       </div>
     </section>
     <section class="panel">
-      <div class="section-head"><h2>Лекции</h2><label class="mini-button clickable" for="files">+ Добавить</label><input id="files" class="sr-only" type="file" multiple accept=".pptx,.pdf,.txt,.md,.json,.ipynb"></div>
+      <div class="section-head"><h2>Лекции</h2><div class="native-upload"><input id="files" class="sr-only" type="file" multiple accept=".pptx,.pdf,.txt,.md,.json,.ipynb"><label class="button clickable" for="files">Добавить лекцию</label></div></div>
       <div id="lectures" class="native-lectures"></div><p id="files-info" class="hint" role="status"></p>
       <div class="setting-line"></div><div class="section-head model-head"><label for="model">Локальная модель</label><button class="mini-button" id="models" type="button">Обновить</button></div>
       <select id="model"><option value="">Карточки и поиск (без модели)</option></select><p id="model-info" class="hint"></p>
+      <div class="native-entry-actions"><a class="button" href="/setup#connection">Настроить LM Studio</a></div>
       <details class="capture-settings"><summary>Параметры и проверка</summary>
         <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом Mac</label>
-        <div class="result-tools"><a class="subtle" href="/check">Проверить модель и OCR</a><a class="subtle" href="/demo?lobby=1" target="_blank" rel="noopener">Пробный квиз ↗</a></div>
+        <div class="result-tools"><a class="subtle" href="/check">Проверить модель и OCR</a></div>
       </details>
       <button type="button" id="start" class="button run" hidden disabled>Начать чтение по разметке</button>
       <p class="hint" id="ready" role="status"></p>

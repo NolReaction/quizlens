@@ -1,0 +1,115 @@
+.capture-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-bottom: 22px;
+}
+.capture-heading p {
+  color: var(--muted);
+  max-width: 60ch;
+  margin-top: 4px;
+}
+.session-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.start-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0 0 24px;
+}
+.start-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: clamp(16px, 2vw, 23px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.start-card h2 {font-size: 1.15rem;}
+.start-card > p {
+  color: var(--muted);
+  margin: 6px 0 16px;
+  font-size: .96rem;
+  line-height: 1.5;
+}
+.start-card .button {margin-top: auto;}
+.start-card .file-feedback {margin: 10px 0 0; color: var(--ink); overflow-wrap: anywhere;}
+.start-card .file-feedback:empty {display: none;}
+.practice-card {
+  background: #172923;
+  border-color: #345246;
+}
+.practice-card .button {border-color: #517868; background: #244336; color: #c0f8dc;}
+.session-actions .button, .start-card .button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 17px;
+  font-size: 1rem;
+  text-align: center;
+}
+.start-card a.button:hover {background: #304250;}
+.practice-card a.button:hover {background: #2b5041;}
+#sessionView .notice {margin: 0 0 16px;}
+#sessionView:not(.sharing) .stage {aspect-ratio: auto; min-height: 166px;}
+#sessionView .empty {max-width: 49ch;}
+#sessionView .panel .mini-button {min-height: 38px; padding: 6px 12px;}
+#sessionView .panel .button {min-height: 42px;}
+#sessionView .capture-controls {margin: 12px 0 0;}
+#sessionView .capture-controls .subtle,
+#sessionView .diagnostics-link,
+#sessionView .result-tools a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  color: var(--mint);
+  font-size: .92rem;
+}
+#sessionView .capture-settings > summary {min-height: 36px; align-content: center;}
+#sessionView .capture-settings {margin-top: 12px;}
+#sessionView .capture-feedback {margin-top: 5px; color: var(--muted); font-size: .9rem;}
+#sessionView .settings select {min-height: 44px; font-size: .97rem;}
+#sessionView .settings .lecture-item {min-height: 38px; align-items: center;}
+#sessionView .lecture-item input {margin-top: 0;}
+#materialSummary {font-size: .88rem; color: var(--muted);}
+#sessionView.sharing .start-card {padding: 12px;}
+#sessionView.sharing .start-card h2,
+#sessionView.sharing .start-card p:not(.file-feedback) {display: none;}
+#sessionView.sharing .start-card .button {width: 100%;}
+
+@media (max-width: 800px) {
+  .start-cards {gap: 9px;}
+  .start-card {padding: 15px;}
+  .start-card .button {padding-inline: 12px;}
+}
+@media (max-width: 665px) {
+  .capture-heading {align-items: flex-start; gap: 12px; margin-bottom: 16px;}
+  .session-actions {width: 100%;}
+  .session-actions .button {flex: 1;}
+  .start-cards {grid-template-columns: 1fr; margin-bottom: 16px;}
+  .start-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 12px;
+  }
+  .start-card > p {grid-column: 1; margin: 0;}
+  .start-card > .button {grid-column: 2; grid-row: 1 / span 2; margin: 0;}
+  .start-card > .file-feedback {grid-column: 1 / -1; margin-top: 2px;}
+  #sessionView.sharing .start-cards {display: flex; flex-wrap: wrap; gap: 7px;}
+  #sessionView.sharing .start-card {display: flex; padding: 0; border: 0; background: transparent;}
+  #sessionView.sharing .start-card .button {min-height: 44px;}
+}
+@media (max-width: 450px) {
+  .start-card {grid-template-columns: 1fr; gap: 3px;}
+  .start-card > .button {grid-column: 1; grid-row: auto; justify-self: start; margin-top: 8px;}
+}

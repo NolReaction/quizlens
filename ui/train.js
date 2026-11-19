@@ -8,8 +8,10 @@ let lectures = [];
 let deck = [];
 let lectureId = '';
 let busy = false;
+let loadingModels = false;
 let generated = false;
 let session = null;
+let studySession = null;
 let timer = null;
 let generationRevision = 0;
 
@@ -71,8 +73,8 @@ function selectMaterial() {
   byId('generation').hidden = !generated;
   byId('review').replaceChildren();
   byId('materialNote').textContent = generated
-    ? (deck.length ? 'Сохранено проверенных тобой карточек — ' + deck.length + '.' : 'Модель предложит пары вопросов. Сверь правильные варианты с цитатами перед тренировкой.')
-    : 'Десять вопросов с изменяемыми условиями. На каждый ответ даётся 15 секунд.';
+    ? (deck.length ? 'Сохранено карточек для занятий — ' + deck.length + '.' : 'Чтобы начать занятие по этой лекции, подготовь вопросы в разделе «Карточки по своей лекции».')
+    : 'Готовый набор. Карточки и самостоятельная тренировка работают без модели.';
   byId('status').textContent = '';
   updateSetup();
 }
@@ -80,18 +82,19 @@ function selectMaterial() {
 function updateSetup() {
   const hasModel = Boolean(byId('localModel').value);
   byId('material').disabled = busy;
-  byId('localModel').disabled = busy;
-  byId('refresh').disabled = busy;
-  byId('practice').disabled = busy || !deck.length;
-  byId('bench').disabled = busy || !hasModel || !lectureId || !deck.length;
-  byId('generate').disabled = busy || !hasModel || !lectureId;
+  byId('localModel').disabled = busy || loadingModels;
+  byId('refresh').disabled = busy || loadingModels;
+  byId('cards').disabled = byId('practice').disabled = busy || !deck.length;
+  byId('bench').disabled = busy || loadingModels || !hasModel || !lectureId || !deck.length;
+  byId('generate').disabled = busy || loadingModels || !hasModel || !lectureId;
   byId('generate').textContent = deck.length && generated ? 'Подготовить новый набор' : 'Подготовить вопросы';
 }
 
 async function loadModels() {
   const model = byId('localModel');
   const previous = model.value;
-  busy = true;
+  loadingModels = true;
+  byId('modelStatus').textContent = 'Ищу локальную модель…';
   updateSetup();
   let models = [];
   try {
@@ -100,8 +103,8 @@ async function loadModels() {
   model.replaceChildren(new Option('Модель не выбрана', ''));
   models.forEach(name => model.add(new Option(name, name)));
   model.value = models.includes(previous) ? previous : models[0] || '';
-  byId('status').textContent = models.length ? '' : 'Можно решать самому. Для проверки модели запусти сервер в LM Studio и нажми «Обновить».';
-  busy = false;
+  byId('modelStatus').textContent = models.length ? '' : 'Для проверки модели включи локальный сервер в LM Studio или Bionic и нажми «Обновить».';
+  loadingModels = false;
   updateSetup();
 }
 
@@ -109,6 +112,47 @@ function cite(card) {
   const details = node('details', undefined, 'proof');
   details.append(node('summary', 'Фрагмент лекции'), node('p', card.excerpt), node('small', card.source));
   return details;
+}
+
+function openCards() {
+  if (!deck.length || busy || session || studySession) return;
+  // Keep each question's wording and answer key together when navigating back.
+  studySession = {position:0, entries:deck.map(card => ({
+    card, variant:card.variants[Math.floor(Math.random() * card.variants.length)]
+  }))};
+  byId('setup').hidden = true;
+  byId('flashcards').hidden = false;
+  renderCard();
+}
+
+function showCardAnswer(revealed) {
+  byId('cardAnswer').hidden = !revealed;
+  byId('cardOptions').hidden = revealed;
+  byId('flipCard').setAttribute('aria-expanded', String(revealed));
+  byId('flipCard').textContent = revealed ? 'Скрыть ответ' : 'Показать ответ';
+}
+
+function renderCard() {
+  const {entries, position} = studySession;
+  const {card, variant} = entries[position];
+  byId('cardPosition').textContent = 'Карточка ' + (position + 1) + ' из ' + entries.length;
+  byId('cardQuestion').textContent = variant.question;
+  byId('cardOptions').replaceChildren(...card.options.map(option => node('li', option)));
+  byId('cardAnswerLabel').textContent = variant.correct.length > 1 ? 'Правильные ответы' : 'Правильный ответ';
+  byId('correctOptions').replaceChildren(...variant.correct.map(number => node('li', card.options[number - 1])));
+  byId('cardReason').textContent = variant.reason;
+  byId('cardSource').replaceChildren(cite(card));
+  showCardAnswer(false);
+  byId('previousCard').disabled = position === 0;
+  byId('followingCard').textContent = position + 1 === entries.length ? 'Завершить повторение' : 'Следующая карточка →';
+  byId('cardQuestion').focus();
+}
+
+function closeCards() {
+  studySession = null;
+  byId('flashcards').hidden = true;
+  byId('setup').hidden = false;
+  byId('cards').focus();
 }
 
 function createDrafts(cards) {
@@ -384,6 +428,20 @@ byId('material').onchange = selectMaterial;
 byId('localModel').onchange = updateSetup;
 byId('refresh').onclick = loadModels;
 byId('generate').onclick = generate;
+byId('cards').onclick = openCards;
+byId('flipCard').onclick = () => showCardAnswer(byId('cardAnswer').hidden);
+byId('previousCard').onclick = () => {
+  if (!studySession || studySession.position === 0) return;
+  studySession.position--;
+  renderCard();
+};
+byId('followingCard').onclick = () => {
+  if (!studySession) return;
+  if (studySession.position + 1 === studySession.entries.length) return closeCards();
+  studySession.position++;
+  renderCard();
+};
+byId('closeCards').onclick = closeCards;
 byId('practice').onclick = () => begin('practice');
 byId('bench').onclick = () => begin('bench');
 byId('submit').onclick = () => {
@@ -409,6 +467,7 @@ async function init() {
       byId('material').add(new Option('Свои вопросы · ' + item.name, item.id));
     }
     selectMaterial();
+    if (typeof location !== 'undefined' && location.hash === '#cards') openCards();
     await loadModels();
   } catch (error) { byId('status').textContent = error.message; }
 }

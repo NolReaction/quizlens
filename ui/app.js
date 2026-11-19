@@ -106,15 +106,18 @@ function controls() {
   const sharing = Boolean(state.stream);
   const auto = state.layoutMode === 'auto';
   const ready = sharing && (auto || validFields(state.regions.length)) && state.selected.size > 0;
-  el('firstSetup').hidden = sharing || Object.prototype.hasOwnProperty.call(settings(),'model');
-  el('modelAdvisor').target = sharing ? '_blank' : '_self';
-  el('modelAdvisor').rel = 'noopener';
+  for (const link of [el('modelAdvisor'), el('navSetup'), el('studyCardsLink')]) {
+    link.target = sharing ? '_blank' : '_self';
+    link.rel = 'noopener';
+  }
+  el('sessionView').classList.toggle('sharing', sharing);
+  el('run').hidden = !sharing;
+  el('runHint').hidden = !sharing;
+  el('captureHint').hidden = !sharing;
   el('share').textContent = sharing ? 'Сменить окно' : 'Выбрать окно';
   el('share').classList.toggle('primary', !sharing);
   el('sessionView').classList.toggle('reading', state.running);
-  el('materialSummary').textContent = (state.selected.size ? 'Выбрано файлов · '+state.selected.size : 'Выбери лекцию')
-     + ' · ' + (el('model').value || 'Без модели');
-  if (sharing && !state.selected.size) el('materials').open=true;
+  el('materialSummary').textContent = state.selected.size ? 'Выбрано файлов · '+state.selected.size : 'Выбери лекцию';
   el('release').hidden = !sharing;
   el('autoLayout').hidden = !sharing || (auto && !state.autoFocus);
   el('autoLayout').textContent = auto ? 'Искать во всём окне' : 'Вернуть авторазметку';
@@ -192,12 +195,13 @@ async function loadLectures() {
   renderLectures();
   if(state.autoArmed && !state.running && state.selected.size) start();
 }
+el('addLecture').addEventListener('click', () => el('files').click());
 el('files').addEventListener('change', async event => {
   const files = [...event.target.files];
   if (!files.length) return;
   const fileErrors=[];
   let complete=0;
-  event.target.disabled = true;
+  el('addLecture').disabled = true;
   if (state.running && !state.autoArmed) stop();
   try {
     for(const file of files) {
@@ -213,7 +217,7 @@ el('files').addEventListener('change', async event => {
       } catch(error) { fileErrors.push(file.name+' — '+error.message); }
     }
     el('fileInfo').textContent = 'Добавлено файлов — '+complete+'. '+fileErrors.join(' ');
-  } finally { event.target.value=''; event.target.disabled=false; }
+  } finally { event.target.value=''; el('addLecture').disabled=false; }
 });
 async function loadModels() {
   const version = ++modelLoadVersion;
@@ -834,7 +838,6 @@ window.addEventListener('pagehide',()=>{
   if(state.stream) state.stream.getTracks().forEach(t=>t.stop());
   clearWorkflow();
 });
-el('materials').open = !(settings().model && settings().selected?.length);
 idleAnswer(); controls();
 api('/api/health').then(health => {
   el('nativeLink').hidden = health.nativeCapture !== true;

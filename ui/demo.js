@@ -10,7 +10,9 @@ const translations = {
     mode: "Режим", modes: ["Один ответ", "Несколько ответов", "От 2 до 8 вариантов"], submit: "Отправить ответы",
     selection: (n, total) => `Отмечено ${n} из ${total}.`,
     times: ["20 секунд", "15 секунд", "Без таймера"], ready: "Экран готов для разметки. Когда закончите, нажмите «Начать».",
-    lobby: "Подключи эту вкладку в QuizLens. Первый вопрос появится после нажатия «Начать».",
+    lobbyTitle: "Проверить захват окна",
+    lobbySteps: "Вернись на страницу «Захват», нажми «Выбрать окно» и выбери «Пробный квиз». Затем вернись сюда и нажми «Начать».",
+    lobby: "Первый вопрос появится, когда ты будешь готов.",
     start: "Начать", next: "Дальше", result: "Результат", reset: "Ещё раз", correct: "Верно.", wrong: "Неверно.",
     timeout: "Время вышло.", noTimer: "Без таймера", choosing: "Выберите один вариант.", complete: "Квиз завершён",
     position: (n, total) => `Вопрос ${n} из ${total}`, score: (n, total) => `Верных ответов — ${n} из ${total}`,
@@ -21,7 +23,9 @@ const translations = {
     mode: "Mode", modes: ["One answer", "Multiple answers", "2–8 options"], submit: "Submit answers",
     selection: (n, total) => `${n} of ${total} selected.`,
     times: ["20 seconds", "15 seconds", "No timer"], ready: "The question is ready for calibration. Press Start when you are ready.",
-    lobby: "Share this tab with QuizLens first. Press Start to reveal the first question.",
+    lobbyTitle: "Try window capture",
+    lobbySteps: "In QuizLens, open Capture, choose a window and select Practice quiz. Then return here and press Start.",
+    lobby: "The first question will appear when you are ready.",
     start: "Start", next: "Next", result: "Results", reset: "Try again", correct: "Correct.", wrong: "Incorrect.",
     timeout: "Time is up.", noTimer: "No timer", choosing: "Choose one answer.", complete: "Quiz complete",
     position: (n, total) => `Question ${n} of ${total}`, score: (n, total) => `${n} of ${total} correct`,
@@ -64,6 +68,8 @@ function reset() {
   ui["duration-label"].textContent = dictionary.duration;
   ui["language-label"].textContent = dictionary.language;
   ui["mode-label"].textContent = dictionary.mode;
+  ui["lobby-heading"].textContent = dictionary.lobbyTitle;
+  ui["lobby-steps"].textContent = dictionary.lobbySteps;
   [...ui.mode.options].forEach((option, i) => { option.textContent = dictionary.modes[i]; });
   [...ui.duration.options].forEach((option, i) => { option.textContent = dictionary.times[i]; });
   ui.mode.disabled = ui.language.disabled = ui.duration.disabled = false;
@@ -85,6 +91,7 @@ function showQuestion() {
     optionButtons.push(button);
   }
   ui.round.hidden = lobbyMode && state === "ready";
+  ui.lobby.hidden = !ui.round.hidden;
   if (lobbyMode) ui.round.classList.toggle("list-layout", index % 2 === 1);
   ui.position.textContent = dictionary.position(index + 1, questions.length);
   ui.question.textContent = card.question;

@@ -14,6 +14,8 @@ class Element {
   add(el) { this.append(el); if (this.children.length === 1) this.value = el.value; }
   replaceChildren(...els) { this.children = [...els]; if (els[0]?.tag === 'option') this.value = els[0].value; }
   addEventListener(event, cb) { this['on' + event] = cb; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() { this.focused = true; }
   querySelectorAll(selector) {
     return this.children.flatMap(el => typeof el === 'string' ? [] :
       [...(el.tag === 'input' && (selector !== 'input:checked' || el.checked) ? [el] : []),
@@ -27,7 +29,7 @@ const card = {topic:'Метрики', options:['50 %','75 %'], mode:'single', so
   variants:[{value:'2', question:'Один правильный прогноз из 2. Какова точность?', correct:[1], reason:'1/2 = 50 %.'},
     {value:'4', question:'Три правильных прогноза из 4. Какова точность?', correct:[2], reason:'3/4 = 75 %.'}]};
 
-async function harness({cards=[card], response, noModel=false, saved={}}={}) {
+async function harness({cards=[card], response, noModel=false, saved={}, hash='', modelWait}={}) {
   const elements = {}, storage = new Map(Object.entries(saved)), calls = [], jobs = new Map();
   let clock=0, last=0;
   const get = id => elements[id] ||= new Element();
@@ -40,11 +42,13 @@ async function harness({cards=[card], response, noModel=false, saved={}}={}) {
       '/api/lectures':{lectures:[{name:'lecture.txt',id:'one'},{name:'two.md',id:'two'}]},
       '/api/models':{models:noModel ? [] : ['local-Qwen']},'/api/train/generate':{cards}};
     let body = known[url];
+    if (url === '/api/models' && modelWait) await modelWait;
     if (url === '/api/solve') body = await response(payload, ms => clock += ms);
     return {ok:true,json:async()=>body};
   };
   const ctx = vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)},
     Option:class extends Element {constructor(text,value){super('option',text,value);}},fetch:api,
+    location:{hash},
     performance:{now:()=>clock},setInterval:schedule,setTimeout:schedule,
     clearTimeout:n=>jobs.delete(n),clearInterval:n=>jobs.delete(n),AbortController,
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)}});
@@ -119,4 +123,49 @@ test('generated drafts stay outside benchmark until user checks the keys; persis
   assert.equal(store[0].cards.length,1);
   h.get('material').value='builtin';h.get('material').onchange();
   assert.equal(h.get('generation').hidden,true);
+});
+
+test('study opens from the cards link before model lookup ends; flipping keeps papers stable and shows all correct answers', async () => {
+  const multi = {...card, mode:'multiple', variants:[{
+    question:'Какие два ответа подходят?', correct:[1,2], reason:'Оба ответа даны в лекции.'
+  }]};
+  let finishLookup;
+  const modelWait = new Promise(resolve => { finishLookup = resolve; });
+  const h = await harness({cards:[card,multi], noModel:true, hash:'#cards', modelWait});
+  assert.equal(h.get('flashcards').hidden,false);
+  assert.equal(h.get('previousCard').disabled,true);
+  assert.equal(h.get('refresh').disabled,true);
+  assert.equal(h.get('cards').disabled,false);
+  const first = h.get('cardQuestion').textContent;
+  h.get('flipCard').onclick();
+  assert.equal(h.get('cardAnswer').hidden,false);
+  assert.equal(h.get('flipCard')['aria-expanded'],'true');
+  assert.match(h.get('cardSource').text(),/Правило вычисления/);
+  h.get('followingCard').onclick();
+  assert.equal(h.get('cardAnswer').hidden,true);
+  assert.equal(h.get('cardPosition').textContent,'Карточка 2 из 2');
+  h.get('flipCard').onclick();
+  assert.deepEqual(h.get('correctOptions').children.map(el => el.textContent), multi.options);
+  assert.equal(h.get('cardReason').textContent,multi.variants[0].reason);
+  h.get('previousCard').onclick();
+  assert.equal(h.get('cardQuestion').textContent,first);
+  assert.equal(h.get('cardAnswer').hidden,true);
+  h.get('followingCard').onclick();
+  h.get('followingCard').onclick();
+  assert.equal(h.get('setup').hidden,false);
+  assert.equal(h.get('flashcards').hidden,true);
+  assert.equal(h.get('cards').focused,true);
+  finishLookup(); await tick();
+  assert.ok(h.calls.every(([url]) => url !== '/api/solve' && url !== '/api/train/generate'));
+});
+
+test('study uses verified cards for the selected lecture and never falls back to an unrelated deck', async () => {
+  const own = {...card, variants:[{question:'Вопрос из своей лекции', correct:[1],reason:'Объяснение'}]};
+  const saved = {'quizlens.practice.decks.v1':JSON.stringify([{id:'two',cards:[own]}])};
+  const h = await harness({noModel:true,saved});
+  h.get('material').value='two';h.get('material').onchange();h.get('cards').onclick();
+  assert.equal(h.get('cardQuestion').textContent,own.variants[0].question);
+  h.get('closeCards').onclick();
+  h.get('material').value='one';h.get('material').onchange();
+  assert.equal(h.get('cards').disabled,true);
 });

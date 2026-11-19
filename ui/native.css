@@ -1,4 +1,11 @@
 #native-main { max-width:1200px; }
+#native-main .native-title { flex-wrap:wrap; gap:.65rem; }
+#native-main .native-intro { margin:.65rem 0; }
+#native-main .native-entry-actions { display:flex; flex-wrap:wrap; gap:.55rem; margin:1rem 0; }
+#native-main .button, #native-main #models, #native-main select { min-height:46px; }
+#native-main .button { display:inline-flex; align-items:center; justify-content:center; }
+#native-main .native-upload input:focus-visible + label { outline:3px solid var(--mint); outline-offset:3px; }
+#native-main .native-upload input:disabled + label { opacity:.5; }
 #native-main .native-field { display:block; color:var(--muted); font-size:.85rem; margin-bottom:5px; }
 #start { margin:14px 0 7px; }
 #live .capture-controls { margin:0; }
@@ -24,3 +31,6 @@ body.reading #native-main .answer-setting { max-width:760px; margin:0 auto 1rem;
 #current-question { margin-top:10px; }
 body.reading #native-main { padding-top:18px; }
 body.reading .top, body.reading .page-title { display:none; }
+@media (max-width:480px) {
+  #native-main .native-entry-actions > *, #native-main #setup .capture-controls > .button { flex:1 1 100%; }
+}

@@ -67,11 +67,15 @@ def smoke(archive, signing):
                 info = json.load(response)
             if info.get("version") != expected or info.get("platform") != expected_platform:
                 raise ValueError(f"Unexpected running server: {info}")
-            for path in ("/", "/setup", "/train", "/journal"):
+            for path in ("/", "/setup", "/train", "/journal", "/demo?lobby=1"):
                 with local.open(url + path, timeout=7) as response:
-                    if response.status != 200 or b"QuizLens" not in response.read():
+                    if response.status != 200 or b"<!doctype html>" not in response.read().lower():
                         raise ValueError(f"Could not open {path}")
-            print(f"{archive.name}: launched the shipped {expected_platform} entrypoint, verified {expected} and four pages.")
+            for path in ("/demo-window.js", "/capture.css", "/train.js"):
+                with local.open(url + path, timeout=7) as response:
+                    if response.status != 200 or not response.read(1):
+                        raise ValueError(f"Missing UI asset: {path}")
+            print(f"{archive.name}: launched the {expected_platform} entrypoint and verified the {expected} interface.")
         finally:
             if process.poll() is None:
                 if os.name == "nt":

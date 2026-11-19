@@ -1,8 +1,22 @@
-.advisor {max-width:870px;padding-inline:clamp(16px,4vw,42px)}
+.advisor {max-width:1100px;padding-inline:clamp(16px,4vw,42px)}
 .advisor .back-link,.advisor .steps a,.advisor details a {color:var(--mint)}
 .advisor a:hover,.advisor .quiet:hover {text-decoration:underline}
 .advisor>.back-link {display:inline-block;margin-bottom:.9rem;font-size:.88rem}
-.advisor .lead {color:var(--muted);margin:.45rem 0 1.5rem}
+.advisor .lead {color:var(--muted);max-width:72ch;margin:.55rem 0 1.4rem}
+.advisor .connection-steps {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;list-style:none;counter-reset:connect;padding:0;margin:0 0 1.35rem}
+.advisor .connection-steps li {counter-increment:connect;display:flex;flex-direction:column;align-items:flex-start;gap:.6rem;margin:0;padding:clamp(16px,2vw,24px);background:var(--surface);border:1px solid var(--border);border-radius:15px}
+.advisor .connection-steps h2 {display:flex;align-items:baseline;gap:.55rem}
+.advisor .connection-steps h2::before {content:counter(connect);min-width:1.5rem;text-align:center;border-radius:5px;background:#1b3830;color:var(--mint);font-size:.94rem;line-height:1.6}
+.advisor .connection-steps p,.advisor .endpoint {color:var(--muted);font-size:.96rem}
+.advisor .connection-steps .button {margin-top:auto}
+.advisor .button {display:inline-flex;align-items:center;justify-content:center;min-height:44px;font-size:1rem}
+.advisor .connection-state {margin:1rem 0 0;padding:.68rem .85rem;border-left:3px solid var(--sub);background:#18252d;color:var(--ink)}
+.advisor .connection-state[data-state=ready] {border-color:var(--mint)}
+.advisor .connection-state[data-state=offline] {border-color:var(--warn)}
+.advisor .endpoint {margin:.65rem 0 0}
+.advisor .endpoint code {overflow-wrap:anywhere}
+.advisor #connection,.advisor #choose-model,.advisor #local-panel {scroll-margin-top:12px}
+@media(max-width:740px){.advisor .connection-steps{grid-template-columns:1fr}.advisor .connection-steps li{gap:.45rem}.advisor .connection-steps .button{margin-top:.25rem}}
 .advisor .panel {margin-bottom:1rem}
 .advisor .device-head {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem}
 .advisor .quiet {padding:.25rem 0;border:0;background:none;color:var(--mint);font:inherit;font-size:.87rem}

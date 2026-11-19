@@ -116,7 +116,7 @@ function renderCard(container, model) {
   };
   actions.append(copy);
   if (model.installedId && !manual && localAdvice?.models?.includes(model.installedId)) {
-    const select = textNode('button','Проверить установленную модель','button');
+    const select = textNode('button','Перейти к проверке этой модели','button');
     select.type = 'button';
     select.onclick = () => {
       element('installed-model').value = model.installedId;
@@ -156,10 +156,12 @@ function available(data) {
   const selected = choices.find(id=>id && models.includes(id)) || '';
   input.replaceChildren(...models.map(id=>new Option(id,id)));
   input.value=selected;
-  element('server-status').textContent = data.serverAvailable
-    ? models.length ? 'Локальный сервер подключён. Можно проверить любую текстовую модель из списка.'
-      : 'Сервер подключён. Загрузи текстовую модель в Bionic или LM Studio и обнови список.'
-    : 'Включи локальный API-сервер в Bionic или LM Studio, затем обнови список. Подбор по характеристикам уже доступен.';
+  const status = element('server-status');
+  status.setAttribute('data-state', data.serverAvailable ? 'ready' : 'offline');
+  status.textContent = data.serverAvailable
+    ? models.length ? 'Сервер ответил. Выбери модель из списка ниже и проверь её на трёх вопросах.'
+      : 'Сервер ответил, список текстовых моделей пуст. Загрузи текстовую модель в LM Studio или Bionic и нажми «Обновить список».'
+    : 'Сервер не отвечает. Включи его в LM Studio или Bionic, оставь приложение открытым и нажми «Обновить список».';
   element('available').hidden = !selected;
   element('cards-only').hidden = Boolean(selected);
   displayHistory();
@@ -198,6 +200,7 @@ async function loadLocal() {
     element('hardware').textContent = 'Характеристики недоступны.';
     element('available').hidden = true;
     element('recommendation').hidden = true;
+    element('server-status').setAttribute('data-state', 'offline');
     element('server-status').textContent = 'Не удалось получить данные от QuizLens.';
     setIssue('Проверь, что QuizLens запущен, и нажми «Обновить список».');
   } finally {
@@ -333,6 +336,10 @@ element('profile-form').oninput = () => {
 element('platform').onchange = formOptions;
 element('accelerator').onchange = formOptions;
 element('refresh').onclick = () => { clearBench(); return loadLocal(); };
+element('jump-check').onclick = () => {
+  if (manual) selectMode();
+  else if (!element('refresh').disabled) element('refresh').onclick();
+};
 element('benchmark').onclick = benchmark;
 element('installed-model').onchange = () => { clearBench(); element('refresh').disabled = false; updateApply(); };
 element('apply-model').onclick = () => {

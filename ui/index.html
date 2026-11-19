@@ -3,8 +3,10 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>QuizLens · Сессия</title>
+  <title>QuizLens · Захват квиза</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/capture.css">
+  <script src="/demo-window.js" defer></script>
   <script src="/visual-transfer.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
@@ -12,25 +14,50 @@
 <header class="top"><div class="bar">
   <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
   <nav class="primary-nav" aria-label="Основные разделы">
-    <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+    <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/setup#connection" id="navSetup">LM Studio</a><a href="/journal">Журнал</a>
   </nav>
 </div></header>
 <main id="sessionView">
-  <div class="page-title"><h1>Помощник квиза</h1><div class="session-status" id="sessionStatus"><i class="dot"></i><span>Ожидание</span></div></div>
-  <p class="first-model" id="firstSetup" hidden>Впервые запускаешь QuizLens? <a href="/setup">Подобрать модель для компьютера →</a></p>
+  <div class="capture-heading">
+    <div><h1>Захват квиза</h1><p>Подключи окно с вопросами. QuizLens покажет ответ и цитату из выбранной лекции.</p></div>
+    <div class="session-actions">
+      <button type="button" class="button primary" id="share">Выбрать окно</button>
+      <button type="button" class="button run" id="run" hidden>Начать чтение</button>
+    </div>
+  </div>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <section class="start-cards" aria-label="Подготовка к захвату">
+    <article class="start-card practice-card">
+      <h2>Попробуй на примере</h2>
+      <p>Открой квиз в отдельном окне. Вернись сюда, нажми «Выбрать окно» и укажи пробный квиз.</p>
+      <a class="button" data-demo-window href="/demo?lobby=1" target="quizlens-demo">Открыть пробный квиз ↗</a>
+    </article>
+    <article class="start-card">
+      <h2>Добавь свою лекцию</h2>
+      <p>Загрузи конспект, презентацию или блокнот. По отмеченным материалам будет идти поиск.</p>
+      <button type="button" class="button" id="addLecture">Добавить лекцию</button>
+      <input type="file" id="files" accept=".pdf,.pptx,.ipynb,.txt,.md,.json" multiple hidden>
+      <p class="hint file-feedback" id="fileInfo" role="status"></p>
+    </article>
+    <article class="start-card">
+      <h2>Подключи локальную модель</h2>
+      <p>LM Studio или Bionic запускает модель на твоём компьютере. Она отвечает по фрагментам лекции.</p>
+      <a class="button" href="/setup#connection" id="modelAdvisor">Настроить LM Studio</a>
+    </article>
+  </section>
   <div class="workspace">
-    <section class="panel capture">
-      <div class="section-head"><h2>Окно квиза</h2><button type="button" class="button primary" id="share">Выбрать окно</button></div>
+    <section class="panel capture" aria-labelledby="previewTitle">
+      <div class="section-head"><h2 id="previewTitle">Окно квиза</h2><div class="session-status" id="sessionStatus" role="status"><i class="dot"></i><span>Ожидание</span></div></div>
       <div id="stage" class="stage">
-        <div class="empty" id="emptyStage"><span class="window-icon" aria-hidden="true"><i></i></span><strong>Выбери окно или вкладку</strong><p>Можно подключиться до начала квиза.<br>Чтение начнётся, когда появятся вопрос и варианты.</p></div>
+        <div class="empty" id="emptyStage"><span class="window-icon" aria-hidden="true"><i></i></span><strong>Здесь будет видно выбранное окно</strong><p>Подключиться можно заранее. Чтение начнётся, когда появится вопрос с вариантами.</p></div>
         <div class="video-box" id="videoBox" hidden><video id="preview" muted playsinline autoplay></video><div class="areas" id="liveAreas" aria-hidden="true"></div></div>
       </div>
       <div class="capture-controls">
         <button type="button" class="button text-button" id="release" hidden>Отключить</button>
         <a href="/native" class="subtle" id="nativeLink" hidden>Захват окна средствами macOS →</a>
-        <a class="subtle" href="/demo?lobby=1" target="_blank" rel="noopener">Открыть пробный квиз ↗</a>
       </div>
-      <p class="hint" id="captureHint">Можно выбрать вкладку, пока квиз ещё не начался.</p>
+      <p class="hint" id="captureHint" hidden></p>
+      <p class="capture-feedback" id="runHint" hidden></p>
       <details class="capture-settings" id="captureSettings">
         <summary>Настройки захвата</summary>
         <div class="capture-controls">
@@ -47,7 +74,6 @@
         <p class="hint" id="selectionHint">При смешанных вопросах оставь «Авто».</p>
         <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом компьютере</label>
       </details>
-      <div class="capture-footer"><span id="runHint">Окно не выбрано</span><button class="button run" type="button" id="run" disabled>Начать чтение</button></div>
     </section>
     <div class="aside">
       <section class="panel result" aria-labelledby="resTitle">
@@ -56,25 +82,22 @@
         <div class="result-tools"><a href="/visual" id="visual" class="subtle" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
         <details id="readDetails"><summary>Распознанный текст</summary><div id="readText" class="read-text">Ожидание первого вопроса.</div></details>
       </section>
-      <details id="materials" class="panel settings materials" open>
-        <summary><strong>Лекции и модель</strong><span id="materialSummary"></span></summary>
-        <div class="section-head"><h2>Лекции</h2><label class="mini-button clickable" for="files">+ Добавить</label><input type="file" id="files" accept=".pdf,.pptx,.ipynb,.txt,.md,.json" multiple class="sr-only"></div>
+      <section id="materials" class="panel settings materials" aria-labelledby="lectureHeading">
+        <div class="section-head"><h2 id="lectureHeading">Лекции для поиска</h2><span id="materialSummary"></span></div>
         <div id="lectureList" class="lecture-list"></div>
-        <p class="hint file-feedback" id="fileInfo" role="status"></p>
+        <a class="diagnostics-link" id="studyCardsLink" href="/train#cards">Открыть учебные карточки →</a>
         <div class="setting-line"></div>
         <div class="section-head model-head"><label for="model">Локальная модель</label><button class="mini-button" type="button" id="refresh">Обновить</button></div>
         <select id="model"><option value="">Карточки и поиск (без модели)</option></select>
         <p class="hint" id="modelInfo"></p>
-        <a class="subtle diagnostics-link model-advisor-link" href="/setup" id="modelAdvisor">Подбор модели →</a>
         <div id="releaseLinks" class="capture-controls" hidden>
           <a class="subtle" id="releaseDownload" target="_blank" rel="noopener noreferrer">Ссылка для друзей ↗</a>
           <a class="subtle" id="releaseGuide" target="_blank" rel="noopener noreferrer">Инструкция ↗</a>
         </div>
         <a class="subtle diagnostics-link" href="/check">Проверка и настройка →</a>
-      </details>
+      </section>
     </div>
   </div>
-  <div id="notice" class="notice" role="status" hidden></div>
 </main>
 <dialog id="calibration" aria-labelledby="dialogTitle">
   <div class="dialog-body">

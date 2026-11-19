@@ -45,6 +45,19 @@ jobs:
         run: python -m unittest discover -s tests
       - name: Run interface tests
         run: node --test tests/*.cjs
+      - name: Check first-run screens in Chrome on desktop and mobile widths
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.56.0
+          python tests/browser/onboarding.py --screenshots "$RUNNER_TEMP/quizlens-screens"
+      - name: Save first-run screenshots
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: first-run-screens
+          path: ${{ runner.temp }}/quizlens-screens
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Build and verify a Mac development archive
         if: runner.os == 'macOS' && !startsWith(github.ref, 'refs/tags/') && !startsWith(github.ref, 'refs/heads/release/')
         run: |
