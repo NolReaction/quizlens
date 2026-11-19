@@ -1,0 +1,42 @@
+# Local builds and test environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+coverage/
+/build/
+/dist/
+/_site/
+/packaging/REPOSITORY
+*.zip
+*.bundle
+*.app/
+/native/RegionOCR
+/native/ReadPDF
+/native/WindowReader
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local lectures, settings and journal
+/lectures/
+/data/
+*.sqlite*
+*.db
+*.gguf
+*.safetensors
+*.log
+
+# Developer credentials
+.env
+.env.*
+*.p12
+*.pfx
+*.p8
+*.key
+*.pem
+*.keychain
+*.keychain-db
+*.mobileprovision
