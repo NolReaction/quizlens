@@ -5,18 +5,47 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
-  group: github-pages
+  group: quizlens-download-page
   cancel-in-progress: false
 
 jobs:
-  build:
-    # A manual run from a feature branch must not replace the public site.
+  settings:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      pages: read
+    outputs:
+      mode: ${{ steps.read.outputs.mode }}
+    steps:
+      - id: read
+        name: Read the publishing source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status=$(curl --silent --show-error --output pages.json --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pages")
+          case "$status" in
+            200) ;;
+            404) echo "::notice::Enable Pages under Settings → Pages and run Download page again."; exit 0 ;;
+            *) echo "::error::Could not read Pages settings (HTTP $status)."; exit 1 ;;
+          esac
+          if jq -e '.build_type == "workflow"' pages.json >/dev/null; then
+            echo "mode=workflow" >> "$GITHUB_OUTPUT"
+          elif jq -e '.build_type == "legacy" and .source.branch == "gh-pages" and .source.path == "/"' pages.json >/dev/null; then
+            echo "mode=legacy" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Select GitHub Actions or the root of gh-pages in Settings → Pages to publish QuizLens."
+          fi
+
+  build:
+    needs: settings
+    if: needs.settings.outputs.mode == 'workflow'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -26,6 +55,7 @@ jobs:
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: _site
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -38,3 +68,48 @@ jobs:
     steps:
       - id: publish
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+
+  branch:
+    needs: settings
+    if: needs.settings.outputs.mode == 'legacy'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: gh-pages
+          path: published
+      - name: Update generated files on gh-pages
+        working-directory: published
+        run: |
+          staging="$RUNNER_TEMP/quizlens-page"
+          python3 ../source/site/build.py --repository "$GITHUB_REPOSITORY" --output "$staging"
+          files=(index.html download.css download.js .nojekyll)
+          for file in "${files[@]}"; do cp --remove-destination "$staging/$file" "$file"; done
+          git add -- "${files[@]}"
+          if ! git diff --cached --quiet; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "Update QuizLens download page"
+            git push origin HEAD:refs/heads/gh-pages
+          fi
+      - name: Request a Pages build for the published commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: published
+        run: |
+          commit=$(git rev-parse HEAD)
+          endpoint="repos/$GITHUB_REPOSITORY/pages/builds"
+          builds=$(gh api "$endpoint?per_page=1")
+          if jq -e --arg commit "$commit" \
+              '.[0] | .commit == $commit and (.status == "built" or .status == "building" or .status == "queued")' \
+              <<< "$builds" >/dev/null; then
+            echo "GitHub Pages already has a build for $commit."
+          else
+            gh api --method POST "$endpoint" --silent
+          fi

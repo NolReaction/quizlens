@@ -35,8 +35,8 @@ git merge --allow-unrelated-histories --no-ff bundle/main
 
 ## 2. Включить страницу загрузки
 
-1. В GitHub открой **Settings → Pages → Build and deployment → Source → GitHub Actions**. Для настройки нужны права владельца или администратора репозитория и доступ к Actions.
-2. Во вкладке **Actions** выбери процесс **Download page** (`pages.yml`). Если первая попытка состоялась до включения Pages, нажми **Run workflow**, выбери `main` и запусти ещё раз.
+1. В GitHub открой **Settings → Pages → Build and deployment**. Для нового репозитория выбери **Source → GitHub Actions**. QuizLens также поддерживает существующую настройку **Deploy from a branch → gh-pages → /(root)**. В этом режиме процесс обновляет четыре файла страницы в ветке `gh-pages`, сохраняет её историю и запрашивает сборку GitHub Pages. Для настройки нужны права администратора и доступ к Actions.
+2. Во вкладке **Actions** выбери процесс **Download page** (`pages.yml`). Если Pages ещё выключен, процесс покажет подсказку. После настройки нажми **Run workflow**, выбери `main` и запусти процесс. Последующие обновления `main` публикуются автоматически.
 3. После успешного развёртывания открой **Settings → Pages → Visit site**. Этот URL можно пересылать друзьям. Для обычного репозитория адрес выглядит как `https://OWNER.github.io/REPO/`. Для репозитория `OWNER.github.io` или собственного домена используй фактический URL из настроек. Якорь `#start` ведёт к первым шагам.
 4. На главной странице репозитория нажми шестерёнку у **About** и помести URL страницы в поле **Website**. Тогда ссылка останется на виду рядом с исходниками. [Настройка GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
