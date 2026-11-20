@@ -1,4 +1,5 @@
 """Document management operates only on QuizLens-owned copies."""
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -40,7 +41,7 @@ class SourceTests(unittest.TestCase):
         cells = [{'cell_type': 'markdown', 'source': [body]} for body in [shared, unique]]
         key = self.add('семинар.ipynb', json.dumps({'cells': cells}))
         self.assertEqual(len(self.corpus.index([key]).sections), 2)
-        with sqlite3.connect(self.embeddings.path) as db:
+        with closing(sqlite3.connect(self.embeddings.path)) as db, db:
             db.executemany('INSERT INTO embedding VALUES (?,?,?)',
                            [('test', _key(text), b'') for text in [shared, unique]])
         self.assertTrue(self.corpus.remove(key, self.embeddings.forget_passages))
@@ -52,7 +53,7 @@ class SourceTests(unittest.TestCase):
             self.corpus.index([key])
         with self.assertRaises(ValueError):
             self.corpus.preview(key, 1)
-        with sqlite3.connect(self.embeddings.path) as db:
+        with closing(sqlite3.connect(self.embeddings.path)) as db:
             self.assertEqual(db.execute('SELECT digest FROM embedding').fetchall(), [(_key(shared),)])
 
     def test_demo_documents_can_be_previewed_and_remain_available_on_restart(self):
