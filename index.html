@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QuizLens — скачать для Mac и Windows</title>
-  <meta name="description" content="QuizLens читает вопрос в выбранном окне и ищет ответ в твоих лекциях. Загрузка для macOS и Windows, подбор локальной модели и инструкция.">
+  <meta name="description" content="QuizLens читает вопрос в выбранном окне и находит ответ в твоих документах. Скачать для macOS и Windows, подобрать локальную модель и проверить на пробном квизе.">
   <meta name="color-scheme" content="dark"><meta name="theme-color" content="#101b1c">
   <link rel="stylesheet" href="./download.css"><script defer src="./download.js"></script>
 </head>
@@ -19,7 +19,7 @@
   <section class="hero wrap" aria-labelledby="intro">
     <div class="intro">
       <h1 id="intro">Ответ на квиз <em>из твоей лекции.</em></h1>
-      <p>QuizLens для Mac и Windows читает вопрос с экрана и находит подсказку в твоих лекциях. После установки приложение открывается в браузере и обрабатывает материалы на твоём компьютере.</p>
+      <p>QuizLens для Mac и Windows читает вопрос с экрана, ищет ответ в выбранных документах и показывает цитату. Распознавание, поиск и работа модели проходят на твоём компьютере.</p>
       <div class="hero-actions"><a id="hero-action" class="button primary" href="#download">Выбрать сборку <span aria-hidden="true">↓</span></a><a class="button secondary" href="#start">Как запустить</a></div>
     </div>
     <aside class="preview" aria-label="Пример работы QuizLens">
@@ -56,16 +56,21 @@
       </div></details>
     </div>
     <div class="first-run-grid">
-      <article class="first-run-card">
-        <h3>Попробовать без модели</h3>
-        <p>В приложении выбери <strong>«Тренировка» → «Открыть карточки»</strong>. Вспомни ответ и нажми <strong>«Показать ответ»</strong>, чтобы проверить себя.</p>
-        <p>Для репетиции захвата нажми <strong>«Открыть пробный квиз»</strong>. Появится отдельное окно. В QuizLens нажми <strong>«Выбрать окно»</strong>, укажи квиз, затем нажми <strong>«Начать»</strong> в окне квиза.</p>
-      </article>
       <article id="model-setup" class="first-run-card">
-        <h3>Подключить LM Studio</h3>
-        <p>Для подсказок по своим лекциям открой раздел <strong>LM Studio</strong> в QuizLens. Он подберёт модель под память компьютера и покажет, какой файл GGUF скачать.</p>
-        <p>Загрузи модель и включи сервер. В LM Studio это <strong>Developer → Start Server</strong>, в Bionic — <strong>Settings → Local Model API</strong>. Вернись в QuizLens, проверь соединение и добавь лекцию в разделе «Захват».</p>
+        <h3>Подключи локальную модель</h3>
+        <p>В QuizLens открой <strong>«Настроить LM Studio»</strong>. Сравни модели по объёму памяти, числу параметров и размеру контекста. Скачай подходящий файл GGUF.</p>
+        <p>Включи сервер в <strong>LM Studio → Developer</strong> или в <strong>Bionic → Settings → Local Model API</strong>. В QuizLens проверь соединение и нажми <strong>«Выбрать для захвата»</strong>.</p>
         <a class="button secondary" href="https://lmstudio.ai/download">Скачать LM Studio или Bionic ↗</a>
+      </article>
+      <article class="first-run-card">
+        <h3>Добавь документы</h3>
+        <p>На странице «Захват» нажми <strong>«Добавить документ»</strong>. Подойдут конспект в PDF, слайды в PPTX или блокнот IPYNB.</p>
+        <p>Отметь файлы по теме занятия. Когда появится вопрос, QuizLens поищет в выбранных документах фрагмент, который подтверждает ответ.</p>
+      </article>
+      <article class="first-run-card">
+        <h3>Выбери окно квиза</h3>
+        <p>Для репетиции нажми <strong>«Открыть пробный квиз»</strong>. Вернись в QuizLens, нажми <strong>«Выбрать окно»</strong> рядом с предпросмотром и укажи появившийся квиз. Когда всё готово, нажми в нём <strong>«Начать»</strong>.</p>
+        <p>Для подготовки без таймера открой <strong>«Тренировка» → «Открыть карточки»</strong>. Готовые карточки доступны без модели.</p>
       </article>
     </div>
   </section>
