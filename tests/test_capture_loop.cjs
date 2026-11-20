@@ -34,7 +34,9 @@ async function makeSession({modelEndpoint, savedModel} = {}) {
   }
   const fakeElement = {
     addEventListener(name, fn) { this.listeners ??= {}; this.listeners[name] = fn; },
-    getContext() {}, querySelector() { return this; }, play: async () => {}, close() { this.open=false; },
+    getContext() { return {drawImage() {}}; }, querySelector() { return this; }, play: async () => {},
+    showModal() { this.open=true; },
+    close() { this.open=false; setImmediate(() => this.listeners?.close?.()); },
     replaceChildren() { this.children = []; },
     setAttribute(name,value) { (this.attributes ??= {})[name]=value; },
     append(...items) { (this.children ??= []).push(...items); }, add() {}, classList: { toggle() {} }, value: 'qwen',
@@ -51,9 +53,10 @@ async function makeSession({modelEndpoint, savedModel} = {}) {
   fakeElement.ownerDocument = document;
   // The capture loop needs only resolved video dimensions and its regular helpers.
   const events = new Map();
+  let persisted = JSON.stringify({model:savedModel});
   const context = vm.createContext({
     document, port, request, AbortController, performance: { now: () => port.now },
-    localStorage: { getItem() { return JSON.stringify({model:savedModel}); } }, ResizeObserver: class { observe() {} },
+    localStorage: { getItem() { return persisted; }, setItem(_key,value) { persisted=value; } }, ResizeObserver: class { observe() {} },
     Event, Option: class {}, window: {
       addEventListener(name, fn) { events.set(name, fn); },
       dispatchEvent(event) { events.get(event.type)?.(event); },
@@ -85,7 +88,7 @@ async function makeSession({modelEndpoint, savedModel} = {}) {
     wholeWindowImage=()=>'full-frame';
     postJson=request;
     answer=info=>{state.response=info;port.answers.push(info);};
-    showTexts=()=>{};status=()=>{};
+    showTexts=texts=>{port.transcript=texts;};status=()=>{};
     globalThis.testApi={tick,differs,acceptTexts,clearWorkflow,start,stop,applySettingsChange,searchPixels,state,drawAnswer,tabCapture:window.quizLensTabCapture};
   `, context);
   const api = context.testApi;
@@ -218,7 +221,8 @@ test('a single incomplete OCR preserves the answer; two blanks remove it', async
   assert.equal(port.answers.at(-1).title, '10 %');
   assert.equal(port.lookups.length, 1);
   read(blank); read(blank);
-  assert.equal(port.answers.at(-1).title, 'Жду все 4 варианта');
+  assert.equal(port.answers.at(-1).title, 'Прочитаны не все области');
+  assert.match(port.answers.at(-1).subtitle, /вопрос, вариант 1, вариант 2, вариант 3, вариант 4/);
   read(initial); read(initial);
   assert.equal(port.answers.at(-1).title, '10 %');
   assert.equal(port.lookups.length, 1);
@@ -475,12 +479,13 @@ test('selecting a waiting tab automatically acquires a grid and follows a change
   assert.equal(port.answers.at(-1).tag,undefined);
 });
 
-test('auto capture armed before lecture selection can be stopped while waiting', async()=>{
+test('automatic window reading with no lecture still scans, and adding one after pause keeps it paused', async()=>{
   const {api,node,port}=await makeSession();
   api.state.selected.clear();
   await node('share').listeners.click();
-  assert.equal(api.state.autoArmed,true);
-  assert.equal(api.state.running,false);
+  assert.equal(api.state.running,true);
+  assert.equal(node('run').disabled,false);
+  assert.deepEqual([...port.detections.shift().payload.lectureIds],[]);
   node('run').listeners.click();
   api.state.selected.add('lecture');
   api.applySettingsChange();
@@ -491,14 +496,78 @@ test('auto capture armed before lecture selection can be stopped while waiting',
   assert.equal(port.detections.length,1);
 });
 
-test('auto starts when a lecture arrives after the window is shared', async()=>{
-  const {api,node,port}=await makeSession();
+test('automatic window reading shows a transcript without documents and resumes answer search after selection', async()=>{
+  const {api,node,port,flush,step}=await makeSession();
   api.state.selected.clear();
   await node('share').listeners.click();
+  port.detections.shift().resolve({regions:grid,texts:initial});await flush();
+  await step(300);
+  port.detections.shift().resolve({regions:grid,texts:initial});await flush();
+  assert.deepEqual([...port.transcript],initial);
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+  assert.equal(port.lookups.length,0);
   api.state.selected.add('lecture');
   api.applySettingsChange();
-  assert.equal(port.detections.length,1);
+  assert.deepEqual([...port.detections.shift().payload.lectureIds],['lecture']);
   assert.equal(api.state.running,true);
+});
+
+test('saving or reusing areas starts manual OCR from pause and keeps its transcript without documents', async()=>{
+  const {api,node,port,step,flush}=await makeSession();
+  api.stop();
+  api.state.selected.clear();
+  node('calibrate').listeners.click();
+  assert.equal(node('calibration').open,true);
+  api.state.draftRegions=grid;
+  node('areaCount').value='4';
+  node('apply').listeners.click();
+  await flush();
+  assert.equal(node('calibration').open,false);
+  assert.equal(api.state.running,true);
+  assert.equal(api.state.layoutMode,'manual');
+  assert.equal(node('run').textContent,'Остановить');
+  assert.deepEqual([...port.ocr[0].lectureIds],[]);
+  await step(0);await step(260);
+  assert.equal(port.lookups.length,0);
+  assert.deepEqual([...port.transcript],initial);
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+
+  api.state.selected.add('lecture');
+  api.applySettingsChange();
+  await step(0);await step(260);
+  assert.deepEqual([...port.lookups[0].lectureIds],['lecture']);
+
+  node('calibrate').listeners.click();
+  assert.equal(api.state.running,false);
+  node('closeDialog').listeners.click();
+  await flush();
+  assert.equal(api.state.running,true);
+
+  api.stop();
+  node('calibrate').listeners.click();
+  node('closeDialog').listeners.click();
+  await flush();
+  assert.equal(api.state.running,false);
+  await node('share').listeners.click();
+  node('run').listeners.click();
+  assert.equal(node('reuse').hidden,false);
+  node('reuse').listeners.click();
+  assert.equal(api.state.running,true);
+  assert.equal(api.state.layoutMode,'manual');
+});
+
+test('tab reading shows the text without sources and submits the same frame once a document is selected', async()=>{
+  const {api,port}=await makeSession();
+  api.state.selected.clear();
+  api.tabCapture.start();
+  api.tabCapture.read(initial);
+  assert.deepEqual([...port.transcript],initial);
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+  assert.equal(port.lookups.length,0);
+  api.state.selected.add('lecture');
+  api.applySettingsChange();
+  assert.deepEqual([...port.lookups[0].lectureIds],['lecture']);
+  assert.equal(port.lookups[0].question,initial[0]);
 });
 
 test('one focus box crops the search, maps detector coordinates back, and resets on aspect change',async()=>{

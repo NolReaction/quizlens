@@ -4,7 +4,8 @@
   const controls = 'input[type=radio], input[type=checkbox], [role=radio], [role=checkbox]';
   const excluded = '[hidden],[inert],[aria-hidden="true"],[role=status],[role=alert],script,style,template,noscript';
   const promptSelector = 'legend,.qtext,.question-text,[data-question-text],h1,h2,h3,h4,h5,h6,[role=heading]';
-  const groupSelector = 'fieldset,[role=radiogroup],[role=group],.que,.quiz-question,article,section,form';
+  const pikucoQuestion = '#test-interface .test_window .question';
+  const groupSelector = 'fieldset,[role=radiogroup],[role=group],.que,.quiz-question,article,section,form,'+pikucoQuestion;
   const answerButtons = 'button,[role=button]';
   const commandAreas = 'header,footer,nav,aside,[role=navigation],[role=menu],[role=menubar],[role=toolbar],[role=tablist]';
   const buttonCommands = '[aria-haspopup],[aria-expanded],[type=submit],[type=reset]';
@@ -76,6 +77,11 @@
     return {el, anchor, label, disabled:disabled(el)};
   }
   function question(group, items) {
+    // Pikuco's answer cards have native inputs, but the prompt is an unlabelled div.
+    if (group.matches(pikucoQuestion)) {
+      const title=group.querySelector(':scope > .question_name');
+      return painted(title) && onScreen(title,true) ? visibleText(title) : '';
+    }
     const labelled = namedElements(group).filter(el => onScreen(el,true)).map(el => visibleText(el)).filter(Boolean).join(' ');
     const generic = /^(?:answers?|options?|choices?|варианты(?: ответ(?:а|ов))?|ответы)$/i;
     if (labelled && !generic.test(labelled)) return labelled;

@@ -147,5 +147,60 @@ def check_dom_extraction(page):
         assert read()["selectionMode"] == "single"
         title.evaluate("node => {node.textContent = 'Выберите 2 варианта'}")
         assert read()["selectionMode"] == "multiple"
+
+        # Public Pikuco reader layout: an ordinary div prompt over an image and native labels.
+        load_fixture("""
+          <style>
+            .test_window { margin:60px auto; width:700px; }
+            .question_block { display:flex; gap:10px; margin-top:12px; }
+            .question_picture { width:420px; height:360px; background:linear-gradient(#555,#333); }
+            .answers { width:260px; }
+            .answers_wrapper { display:grid; gap:5px; }
+            .answer input { display:none; }
+            .answer label { display:grid; place-items:center; height:86px; color:white; background:#263238; }
+            .choose_title { margin:0 0 4px; text-align:right; }
+          </style>
+          <header>Тренировка · Вопрос 2 / 20</header>
+          <div id="test-interface">
+            <div class="test_window">
+              <div class="question">
+                <div class="question_name">Какая планета ближе всего к Солнцу?</div>
+                <div class="question_description">Вопрос про астрономию</div>
+                <div class="question_block">
+                  <div class="question_picture"></div>
+                  <div class="answers">
+                    <p class="choose_title">0 / 1</p>
+                    <div class="answers_wrapper">
+                      <div class="answer"><input id="pikuco0" type="radio" name="ANSWER" value="internal0">
+                        <label for="pikuco0">Марс <span hidden>Скрытые данные</span></label></div>
+                      <div class="answer"><input id="pikuco1" type="radio" name="ANSWER" value="internal1">
+                        <label for="pikuco1">Меркурий</label></div>
+                      <div class="answer"><input id="pikuco2" type="radio" name="ANSWER" value="internal2">
+                        <label for="pikuco2">Венера</label></div>
+                      <div class="answer"><input id="pikuco3" type="radio" name="ANSWER" value="internal3">
+                        <label for="pikuco3">Сатурн</label></div>
+                    </div>
+                    <div class="submit_question">Далее</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        """)
+        pikuco = {"texts": ["Какая планета ближе всего к Солнцу?", "Марс", "Меркурий", "Венера", "Сатурн"],
+                  "selectionMode": "single"}
+        assert read() == pikuco
+        page.locator(".answers_wrapper").evaluate("""node => {
+            node.style.maxHeight = '300px';
+            node.style.overflow = 'auto';
+        }""")
+        assert read() == {"texts": [], "reason": "partial"}
+        page.locator(".answers_wrapper").evaluate("""node => {
+            node.removeAttribute('style');
+            for (const input of node.querySelectorAll('input')) input.type = 'checkbox';
+        }""")
+        assert read() == {**pikuco, "selectionMode": "multiple"}
+        page.locator(".question_name").evaluate("node => {node.hidden = true}")
+        assert read() == {"texts": [], "reason": "partial"}
     finally:
         page.close()

@@ -4,6 +4,8 @@ const el = id => document.getElementById(id);
 const preview = el('preview');
 const validFields = n => Number.isInteger(n) && n >= 3 && n <= 9;
 const manualAreaCount = () => Number(el('areaCount').value) + 1;
+const sameAspect = (current, saved) => Number.isFinite(current) && Number.isFinite(saved) &&
+  current > 0 && saved > 0 && Math.abs(current/saved-1) <= .04;
 const storageKey = 'quizlens.settings.v1';
 const answerCache = new Map();
 let checkingModels = false;
@@ -12,7 +14,7 @@ let modelNames = [];
 let modelError = '';
 const state = {
   stream:null, regions:[], draftRegions:[], draftDrag:null, lectures:[], selected:new Set(),
-  layoutMode:'auto', autoArmed:false, autoFocus:null, focusAspect:0, snapshotAspect:0,
+  layoutMode:'auto', autoFocus:null, focusAspect:0, manualAspect:0, snapshotAspect:0,
   resumeCalibration:false, shareAttempt:0, tabReading:false, tabFrame:null,
   previousReading:null, warningKey:null, readingReview:null,
   running:false, session:0, signature:null, dirtyFrame:false, lastRead:-Infinity,
@@ -135,7 +137,7 @@ function controls() {
   const sharing = Boolean(state.stream);
   const auto = state.layoutMode === 'auto';
   el('stage').hidden = state.tabReading;
-  const ready = sharing && (auto || validFields(state.regions.length)) && state.selected.size > 0;
+  const ready = sharing && (auto || validFields(state.regions.length));
   el('modelAdvisor').target = (sharing || state.tabReading) ? '_blank' : '_self';
   el('sessionView').classList.toggle('sharing', sharing);
   el('run').hidden = !sharing;
@@ -150,16 +152,16 @@ function controls() {
   el('autoLayout').textContent = auto ? 'Искать во всём окне' : 'Вернуть авторазметку';
   el('calibrate').hidden = !sharing;
   el('calibrate').disabled = !sharing;
-  const active = state.running || state.autoArmed;
+  const active = state.running;
   el('run').disabled = !ready && !active;
   el('run').textContent = active ? 'Остановить' : 'Начать чтение';
   el('run').classList.toggle('stop', active);
   const saved = settings().regions;
   const aspect = preview.videoWidth / preview.videoHeight;
   el('reuse').hidden = !sharing || !auto || !saved || !Array.isArray(saved.areas)
-    || !validFields(saved.areas.length) || !Number.isFinite(aspect) || Math.abs(aspect/saved.aspect-1) > .04;
+    || !validFields(saved.areas.length) || !sameAspect(aspect, saved.aspect);
   el('runHint').textContent = !sharing ? 'Окно не выбрано'
-    : !state.selected.size ? 'Отметь документ'
+    : !ready ? 'Разметь вопрос и каждый вариант'
     : !active ? 'Чтение на паузе'
     : auto ? (validFields(state.regions.length) ? 'Авторазметка · вопрос найден' : 'Авторазметка · ожидаю вопрос')
     : 'Чтение выделенных областей';
@@ -189,12 +191,8 @@ el('visual').addEventListener('click', event => {
 });
 
 function applySettingsChange() {
-  if (state.tabReading || (state.autoArmed && state.stream)) {
-    start();
-  } else if (state.running) {
-    stop('Настройки изменены. Запусти чтение снова.');
-  }
-  controls();
+  if (state.running) start();
+  else controls();
 }
 
 let lectureListVersion = 0;
@@ -242,7 +240,6 @@ el('files').addEventListener('change', async event => {
   const fileErrors=[];
   let complete=0;
   el('addLecture').disabled = true;
-  if (state.running && !state.autoArmed && !state.tabReading) stop();
   try {
     for(const file of files) {
       el('fileInfo').textContent = 'Добавляю '+file.name+'…';
@@ -256,7 +253,7 @@ el('files').addEventListener('change', async event => {
         complete++;
         el('sourceManager').open = true;
         remember('selected',[...state.selected]); renderLectures();
-        if(state.autoArmed || state.tabReading) applySettingsChange();
+        applySettingsChange();
       } catch(error) { fileErrors.push(file.name+' — '+error.message); }
     }
     if (complete) window.QuizSources.changed();
@@ -396,7 +393,7 @@ function release() {
   if(stream) stream.getTracks().forEach(track=>track.stop());
   preview.srcObject=null;
   state.regions=[];
-  state.layoutMode='auto';
+  state.layoutMode='auto';state.manualAspect=0;
   state.autoFocus=null;state.focusAspect=0;
   if(el('calibration').open) el('calibration').close();
   el('videoBox').hidden=true; el('emptyStage').hidden=false;
@@ -464,7 +461,7 @@ function calibrationStep() {
 }
 el('calibrate').addEventListener('click',()=> {
   if(!takeSnapshot()) {notify('Кадр ещё загружается. Попробуй снова через секунду.');return;}
-  state.resumeCalibration=state.running || state.autoArmed;
+  state.resumeCalibration=state.running;
   if (validFields(state.regions.length)) el('areaCount').value=String(state.regions.length-1);
   stop();
   state.draftRegions=[];state.draftDrag=null;calibrationStep();
@@ -509,27 +506,37 @@ el('calImage').addEventListener('pointerup',event=>{
   calibrationStep();
 });
 el('calImage').addEventListener('pointercancel',()=>{state.draftDrag=null; calibrationStep();});
-function useAreas(areas) {
-  if(state.running || state.autoArmed) stop();
-  state.layoutMode='manual';
+function useAreas(areas, aspect) {
+  state.layoutMode='manual';state.manualAspect=aspect;
   state.autoFocus=null;state.focusAspect=0;
   state.regions=areas.map(r=>({...r}));
   paintRegions(el('liveAreas'),state.regions);
   el('captureHint').textContent='В — вопрос. Цифрами обозначены варианты в выбранном порядке.';
-  controls();status('Готов к чтению');notify();
+  start();
+}
+function calibrationAspect() {
+  const aspect=preview.videoWidth/preview.videoHeight;
+  if(!sameAspect(aspect,state.snapshotAspect)) {
+    state.draftRegions=[];takeSnapshot();calibrationStep();
+    el('calStep').textContent='Размер кадра изменился. Обведи квиз на обновлённом кадре.';
+    return null;
+  }
+  return aspect;
 }
 el('apply').addEventListener('click',()=>{
-  if(state.draftRegions.length!==manualAreaCount()) return;
-  useAreas(state.draftRegions);
-  remember('regions',{aspect:preview.videoWidth/preview.videoHeight,areas:state.regions});
+  if(!state.stream || state.draftRegions.length!==manualAreaCount()) return;
+  const aspect=calibrationAspect();
+  if(aspect===null) return;
+  state.resumeCalibration=false;
   el('calibration').close();
+  useAreas(state.draftRegions,aspect);
+  remember('regions',{aspect,areas:state.regions});
 });
 el('reuse').addEventListener('click',()=> {
-  const previous=settings().regions?.areas;
-  if(previous && validFields(previous.length)) {
-    const resume=state.running || state.autoArmed;
-    useAreas(previous);
-    if(resume) start();
+  const saved=settings().regions;
+  const aspect=preview.videoWidth/preview.videoHeight;
+  if(state.stream && Array.isArray(saved?.areas) && validFields(saved.areas.length) && sameAspect(aspect,saved.aspect)) {
+    useAreas(saved.areas,aspect);
   }
 });
 el('autoLayout').addEventListener('click',()=>{
@@ -540,12 +547,8 @@ el('autoLayout').addEventListener('click',()=>{
 });
 el('focusSearch').addEventListener('click',()=>{
   if(!state.stream || state.draftRegions.length!==1) return;
-  const aspect=preview.videoWidth/preview.videoHeight;
-  if(!Number.isFinite(aspect) || Math.abs(aspect/state.snapshotAspect-1)>.04) {
-    state.draftRegions=[];takeSnapshot();calibrationStep();
-    el('calStep').textContent='Размер кадра изменился. Обведи квиз на обновлённом кадре.';
-    return;
-  }
+  const aspect=calibrationAspect();
+  if(aspect===null) return;
   state.autoFocus={...state.draftRegions[0]};
   state.focusAspect=aspect;state.layoutMode='auto';state.resumeCalibration=false;
   el('calibration').close();
@@ -642,7 +645,7 @@ function clearWorkflow() {
   state.retryOcrAt=0;state.retrySolveAt=0;state.signature=null;state.dirtyFrame=false;state.lastRead=-Infinity;
 }
 function stop(reason='') {
-  state.running=false;state.autoArmed=false;clearWorkflow();controls();status(state.stream?'Пауза':'Ожидание');
+  state.running=false;clearWorkflow();controls();status(state.stream?'Пауза':'Ожидание');
   idleAnswer();showTexts(null);
   if(reason) notify(reason);
 }
@@ -654,27 +657,21 @@ const tabReaderNotices = {
 function start() {
   if (state.tabReading) {
     clearWorkflow();
-    state.running=state.selected.size>0;
+    state.running=true;
     controls();showTexts(null);
-    answer(state.running ? tabReaderNotices.waiting : {title:'Отметь документ'});
-    status(state.running ? 'Читаю вкладку' : 'Отметь документ');
-    if (state.running && state.tabFrame) window.quizLensTabCapture.read(state.tabFrame.texts, state.tabFrame.hint);
+    answer(tabReaderNotices.waiting);
+    status('Читаю вкладку','active');
+    if (state.tabFrame) window.quizLensTabCapture.read(state.tabFrame.texts, state.tabFrame.hint);
     return;
   }
   const auto=state.layoutMode==='auto';
-  if(!state.stream || (!auto && (!validFields(state.regions.length) || !state.selected.size))) return;
+  if(!state.stream || (!auto && !validFields(state.regions.length))) return;
   clearWorkflow();
-  state.autoArmed=auto;
-  state.running=Boolean(state.selected.size);
+  state.running=true;
   if(auto) {
     state.regions=[];paintLiveAreas();
     el('captureHint').textContent=state.autoFocus ? 'Автопоиск внутри выбранной рамки.'
       : 'Рамки появятся автоматически. Ручная разметка доступна в параметрах чтения.';
-  }
-  if(!state.running) {
-    controls();status('Отметь документ');showTexts(null);
-    answer({title:'Отметь документ',subtitle:'Открой «Управлять источниками» и отметь файл. Чтение начнётся автоматически.'});
-    return;
   }
   controls(); status('Читаю окно','active'); notify();
   showTexts(null);
@@ -702,7 +699,7 @@ window.quizLensTabCapture = {
     stop();
   }
 };
-el('run').addEventListener('click',()=>{if(state.running || state.autoArmed) stop();else start();});
+el('run').addEventListener('click',()=>{if(state.running) stop();else start();});
 function selectionForFrame(hint,optionCount) {
   const override=el('selectionMode').value;
   if (override==='single') return {selectionMode:'single',expectedCount:1};
@@ -751,6 +748,12 @@ function cacheResult(key, result) {
 }
 async function solve(texts,key,session,selection) {
   if(state.displayedKey===key) return;
+  if(!state.selected.size) {
+    state.displayedKey=key;
+    answer({title:'Текст распознан',subtitle:'Добавь или отметь документ в разделе «Добавь документы», чтобы искать ответ.'});
+    status('Текст распознан','active');
+    return;
+  }
   const options=texts.slice(1);
   const cached=answerCache.get(key);
   if(cached) {
@@ -972,7 +975,9 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
         state.regions=[];paintLiveAreas();controls();showTexts(null);
         answer({title:state.captureIssue || 'Ожидаю вопрос и варианты'});
       } else {
-        answer({title:'Жду все '+(texts.length-1)+(texts.length<=5?' варианта':' вариантов'),subtitle:'Проверь разметку, если вопрос уже полностью виден.'});
+        const missing=state.regions.flatMap((_,index)=>texts[index] ? [] : [index ? 'вариант '+index : 'вопрос']);
+        answer({title:'Прочитаны не все области',subtitle:missing.length
+          ? 'Проверь рамки: '+missing.join(', ')+'.' : 'Проверь рамки: распознанные варианты совпадают.'});
       }
       status('Ожидаю варианты','active');
     } else if (complete && selection.selectionMode==='unknown') {
@@ -1108,8 +1113,8 @@ preview.addEventListener('resize',()=>{
     if(state.running) start();
     return;
   }
-  if(validFields(state.regions.length) && preview.videoWidth && Math.abs((preview.videoWidth/preview.videoHeight)/(settings().regions?.aspect||1)-1)>.04) {
-    stop();state.regions=[];paintRegions(el('liveAreas'),[]);controls();
+  if(validFields(state.regions.length) && preview.videoWidth && !sameAspect(preview.videoWidth/preview.videoHeight,state.manualAspect)) {
+    stop();state.regions=[];state.manualAspect=0;paintRegions(el('liveAreas'),[]);controls();
     notify('Форма окна изменилась. Проверь кадр и заново разметь области.');
   }
 });

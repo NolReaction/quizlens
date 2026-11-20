@@ -14,6 +14,7 @@ import tempfile
 from playwright.sync_api import expect, sync_playwright
 
 from local_updates import check_local_updates
+from manual_window import check_manual_window
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -385,6 +386,7 @@ if __name__ == "__main__":
         browser = driver.chromium.launch(executable_path=chrome)
         try:
             check_local_updates(browser, origin)
+            check_manual_window(browser, origin, args.screenshots)
             for viewport in [(1280, 720), (390, 844)]:
                 check_first_run(browser, origin, *viewport, args.screenshots)
         finally:
