@@ -68,3 +68,13 @@ class PublicInstallationLinkTests(unittest.TestCase):
             page.command, page.path = method, path
             with self.assertRaises(PermissionError):
                 Handler.validate(page)
+
+
+class LoopbackStartupTests(unittest.TestCase):
+    def test_bind_allocates_port_without_reverse_dns(self):
+        from app import Handler, QuizServer
+        with patch("socket.getfqdn", side_effect=AssertionError("Unexpected DNS lookup")):
+            with QuizServer(("127.0.0.1", 0), Handler) as server:
+                self.assertEqual(server.server_name, "127.0.0.1")
+                self.assertEqual(server.server_port, server.socket.getsockname()[1])
+                self.assertGreater(server.server_port, 0)

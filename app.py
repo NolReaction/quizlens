@@ -20,6 +20,7 @@ import webbrowser
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.client import HTTPConnection, HTTPException
+from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit
 
 import advisor
@@ -181,6 +182,12 @@ class Corpus:
 class QuizServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self):
+        # HTTPServer resolves its advertised name via reverse DNS. This loopback-only app
+        # already knows its address, so offline DNS must not delay a launch or update.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     def solve(self, data):
         started = time.monotonic()
