@@ -22,7 +22,7 @@ function fillRect(frame, x, y, w, h) {
 
 // Exercise the shipped tick/confirm/solve functions with a controlled camera,
 // clock and local endpoints. Keep aborted requests deliverable to expose races.
-async function makeSession({modelEndpoint, savedModel} = {}) {
+async function makeSession({modelEndpoint, lecturesEndpoint, savedModel, savedWithoutDocuments} = {}) {
   const port = { now: 0, frame: paint(), texts: initial, ocr: [], detections: [], lookups: [], answers: [] };
   function request(path, payload) {
     return new Promise(resolve => {
@@ -53,7 +53,7 @@ async function makeSession({modelEndpoint, savedModel} = {}) {
   fakeElement.ownerDocument = document;
   // The capture loop needs only resolved video dimensions and its regular helpers.
   const events = new Map();
-  let persisted = JSON.stringify({model:savedModel});
+  let persisted = JSON.stringify({model:savedModel, withoutDocuments:savedWithoutDocuments});
   const context = vm.createContext({
     document, port, request, AbortController, performance: { now: () => port.now },
     localStorage: { getItem() { return persisted; }, setItem(_key,value) { persisted=value; } }, ResizeObserver: class { observe() {} },
@@ -66,8 +66,10 @@ async function makeSession({modelEndpoint, savedModel} = {}) {
       const track={addEventListener(){},stop(){}};
       return {getTracks:()=>[track],getVideoTracks:()=>[track]};
     }}},
-    fetch: async path => path === '/api/models' && modelEndpoint ? modelEndpoint() : {
-      ok: true, json: async () => path === '/api/models' ? {models: []} : {lectures: []}
+    fetch: async path => {
+      if (path === '/api/models' && modelEndpoint) return modelEndpoint();
+      if (path === '/api/lectures' && lecturesEndpoint) return lecturesEndpoint();
+      return {ok: true, json: async () => path === '/api/models' ? {models: []} : {lectures: []}};
     },
   });
   vm.runInContext(readFileSync(join(__dirname, '../ui/token-usage.js'), 'utf8'), context);
@@ -570,8 +572,45 @@ test('tab reading shows the text without sources and submits the same frame once
   assert.equal(port.lookups[0].question,initial[0]);
 });
 
-test('answering from model knowledge is opt-in and uses the recognized question without quotes or recording', async()=>{
+test('a selected model answers automatically without documents, quotes, or recording', async()=>{
   const {api,node,port,flush}=await makeSession();
+  api.state.selected.clear();
+  node('model').value='qwen';
+  api.tabCapture.start();
+  api.tabCapture.read(initial);
+  assert.equal(node('withoutDocuments').checked,true);
+  assert.equal(node('withoutDocuments').disabled,false);
+  assert.equal(port.lookups.length,1);
+  const request=port.lookups[0];
+  assert.equal(request.withoutDocuments,true);
+  assert.equal(request.model,'qwen');
+  assert.equal(request.question,initial[0]);
+  assert.deepEqual([...request.lectureIds],[]);
+  assert.equal(request.record,false);
+  assert.equal(request.captureTrace,undefined);
+  request.resolve({kind:'model_knowledge',choice:2,choices:[2],source:'Fake source',excerpt:'Fake quote',journalId:'fake'});
+  await flush();
+  const view=port.answers.at(-1);
+  assert.equal(view.title,initial[2]);
+  assert.equal(view.tag,'Вариант 2');
+  const panel=node('answer');
+  api.drawAnswer(panel,view);
+  assert.deepEqual(panel.children.map(item=>item.textContent),['Ответ модели · без источника','Вариант 2',initial[2]]);
+  assert.ok(panel.children.every(item=>item.tagName!=='a'));
+
+  node('withoutDocuments').checked=false;
+  node('withoutDocuments').listeners.change();
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+  api.state.selected.add('lecture');
+  api.applySettingsChange();
+  assert.equal(node('withoutDocuments').disabled,true);
+  assert.equal(port.lookups.length,2);
+  assert.equal(port.lookups[1].withoutDocuments,undefined);
+  assert.deepEqual([...port.lookups[1].lectureIds],['lecture']);
+});
+
+test('a saved opt-out keeps the transcript and the answer button re-enables the recognized question', async()=>{
+  const {api,node,port}=await makeSession({savedWithoutDocuments:false});
   api.state.selected.clear();
   node('model').value='qwen';
   api.tabCapture.start();
@@ -586,32 +625,31 @@ test('answering from model knowledge is opt-in and uses the recognized question 
   action.listeners.click();
   assert.equal(node('withoutDocuments').checked,true);
   assert.equal(port.lookups.length,1);
-  const request=port.lookups[0];
-  assert.equal(request.withoutDocuments,true);
-  assert.equal(request.model,'qwen');
-  assert.equal(request.question,initial[0]);
-  assert.deepEqual([...request.lectureIds],[]);
-  assert.equal(request.record,false);
-  assert.equal(request.captureTrace,undefined);
-  request.resolve({kind:'model_knowledge',choice:2,choices:[2],source:'Fake source',excerpt:'Fake quote',journalId:'fake'});
-  await flush();
-  const view=port.answers.at(-1);
-  assert.equal(view.title,initial[2]);
-  assert.equal(view.tag,'Вариант 2');
-  api.drawAnswer(panel,view);
-  assert.deepEqual(panel.children.map(item=>item.textContent),['Ответ модели · без источника','Вариант 2',initial[2]]);
-  assert.ok(panel.children.every(item=>item.tagName!=='a'));
+  assert.equal(port.lookups[0].question,initial[0]);
+});
 
-  node('withoutDocuments').checked=false;
-  node('withoutDocuments').listeners.change();
-  assert.equal(port.answers.at(-1).title,'Текст распознан');
-  api.state.selected.add('lecture');
-  api.applySettingsChange();
-  node('withoutDocuments').checked=true;
-  node('withoutDocuments').listeners.change();
-  assert.equal(port.lookups.length,2);
-  assert.equal(port.lookups[1].withoutDocuments,undefined);
-  assert.deepEqual([...port.lookups[1].lectureIds],['lecture']);
+test('a tab frame received before startup waits for the document list and respects marked sources', async()=>{
+  let finishModels,finishLectures;
+  const models=new Promise(resolve=>{ finishModels=resolve; });
+  const lectures=new Promise(resolve=>{ finishLectures=resolve; });
+  const {api,node,port,flush}=await makeSession({
+    savedModel:'qwen',modelEndpoint:()=>models,lecturesEndpoint:()=>lectures
+  });
+  api.state.selected.clear();
+  node('model').value='';
+  api.tabCapture.start();
+  api.tabCapture.read(initial);
+  finishModels({ok:true,json:async()=>({models:['qwen']})});
+  await flush();
+  assert.equal(node('model').value,'qwen');
+  assert.equal(node('withoutDocuments').disabled,true);
+  assert.equal(port.lookups.length,0);
+
+  finishLectures({ok:true,json:async()=>({lectures:[{id:'lecture'}]})});
+  await flush();
+  assert.equal(port.lookups.length,1);
+  assert.deepEqual([...port.lookups[0].lectureIds],['lecture']);
+  assert.equal(port.lookups[0].withoutDocuments,undefined);
 });
 
 test('model knowledge needs a selected model and ignores answers delivered after opting out', async()=>{
@@ -619,8 +657,8 @@ test('model knowledge needs a selected model and ignores answers delivered after
   api.state.selected.clear();
   api.tabCapture.start();
   api.tabCapture.read(initial);
-  node('withoutDocuments').checked=true;
-  node('withoutDocuments').listeners.change();
+  assert.equal(node('withoutDocuments').checked,true);
+  assert.equal(node('withoutDocuments').disabled,true);
   assert.equal(port.lookups.length,0);
   assert.equal(port.answers.at(-1).title,'Текст распознан');
   assert.match(port.answers.at(-1).subtitle,/Выбери локальную модель/);
@@ -639,7 +677,7 @@ test('model knowledge needs a selected model and ignores answers delivered after
 });
 
 test('turning on model knowledge still waits for OCR agreement and critical-symbol checks', async()=>{
-  const {api,node,port,read}=await makeSession();
+  const {api,node,port,read}=await makeSession({savedWithoutDocuments:false});
   api.state.selected.clear();
   node('model').value='qwen';
   read(initial);read(initial);

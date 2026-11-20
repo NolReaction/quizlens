@@ -37,6 +37,8 @@ class Case:
     scale: float = 1.0
     colored_cards: bool = False
     uniform_cards: bool = False
+    colored_font_size: int = 19
+    colored_question_top: int = 158
 
 
 # Ground truth is known before drawing. Never send this text to the runtime.
@@ -50,6 +52,8 @@ CASES = (
     Case("units", "Какое измерение совпадает с одним метром?", ("10 см", "100 мм", "1,0 м", "0,1 м"), scale=.8),
     Case("colored-cards", "Один из этих приборов измеряет\nтемпературу воздуха на улице\nв тени.",
          ("Барометр", "Термометр", "Вольтметр", "Анемометр"), colored_cards=True),
+    Case("colored-short-options", "Каков химический символ меди?",
+         ("Cu", "C", "Cp", "Co"), colored_cards=True, colored_font_size=28, colored_question_top=193),
     Case("uniform-cards", "Как называется прибор для измерения силы тока?",
          ("Термометр", "Амперметр", "Барометр", "Динамометр"), uniform_cards=True),
 )
@@ -66,7 +70,7 @@ def render_colored_cards(case, phase, font):
     width, height = 1920, 1000
     image = Image.new("RGB", (width, height), "#202a42")
     draw = ImageDraw.Draw(image)
-    body = ImageFont.truetype(font, 19)
+    body = ImageFont.truetype(font, case.colored_font_size)
     small = ImageFont.truetype(font, 16)
     foreground = "#fcfafa"
     left, top = 646 + 2 * phase, 244 + phase
@@ -75,7 +79,7 @@ def render_colored_cards(case, phase, font):
     draw.text((left + 624, 28), "120 баллов", anchor="ra", font=small, fill="#a5b6d5")
     draw.text((center, 91), "Вопрос 3 из 8", anchor="mm", font=small, fill="#a5b6d5")
     draw.text((center, 127), "24 сек" if phase == 0 else "9 сек", anchor="mm", font=body, fill="#f1ad43")
-    draw.multiline_text((center, 158), case.question, anchor="ma", align="center", spacing=4,
+    draw.multiline_text((center, case.colored_question_top), case.question, anchor="ma", align="center", spacing=4,
                         font=body, fill=foreground)
     boxes = [(left, 151, 624, 79)]
     colors = ("#cf2158", "#2755ba", "#f3a717", "#15745f")
@@ -260,6 +264,10 @@ def check_regressions(rows):
         cards = [r for r in rows if r["mode"] == "auto" and r["case"] == case]
         if len(cards) != 2 or not all(r["questionExact"] and r["optionsInOrder"] for r in cards):
             raise ValueError(f"auto/{case}: question and all four choices must survive the layout change: {cards}")
+    short_case = next(case for case in CASES if case.name == "colored-short-options")
+    cards = [r for r in rows if r["mode"] == "auto" and r["case"] == short_case.name]
+    if len(cards) != 2 or not all(r["questionExact"] and tuple(r["texts"][1:]) == short_case.options for r in cards):
+        raise ValueError(f"auto/{short_case.name}: each short choice must retain its letters and case: {cards}")
 
 
 def main():

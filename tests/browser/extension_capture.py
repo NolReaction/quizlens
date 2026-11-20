@@ -10,6 +10,8 @@ import tempfile
 from PIL import ImageGrab
 from playwright.sync_api import expect, sync_playwright
 
+from general_answers import MODEL, PROVENANCE, local_model
+from manual_window import uncheck_sources
 from onboarding import ROOT, app_server
 from tab_reader_cases import BUTTON_OPTIONS, BUTTON_TASK, button_quiz_html, check_dom_extraction
 
@@ -79,7 +81,7 @@ def expect_reader(capture, state):
     expect(capture.locator("#tabReaderStatus")).to_have_attribute("data-state", state, timeout=15000)
 
 
-def run(url, temp, screenshots):
+def run(url, temp, screenshots, model_calls):
     extension = temp / "extension"
     shutil.copytree(ROOT / "browser-extension", extension)
     manifest_file = extension / "manifest.json"
@@ -101,6 +103,9 @@ def run(url, temp, screenshots):
             capture = context.new_page()
             capture.goto(url)
             expect(capture.locator("#lectureList input:checked")).to_have_count(3)
+            capture.locator("#model").select_option(MODEL)
+            expect(capture.locator("#withoutDocuments")).to_be_checked()
+            expect(capture.locator("#withoutDocuments")).to_be_disabled()
             expect_reader(capture, "available")
             quiz = context.new_page()
             quiz_url = url.replace("127.0.0.1", "localhost") + "/demo?lobby=1"
@@ -141,6 +146,8 @@ def run(url, temp, screenshots):
             # Start the quiz without closing its toolbar popup. Both surfaces should update live.
             quiz.locator("#action").evaluate("button => button.click()")
             expect(capture.locator("#answer .answer-title")).to_have_text("Recall", timeout=15000)
+            expect(capture.locator("#answer .answer-source")).to_be_visible()
+            assert not model_calls, "A selected question bank should take precedence over model knowledge"
             expect_reader(capture, "question")
             expect_popup(harness, "question")
             harness.wait_for_function("""async () => {
@@ -180,7 +187,10 @@ def run(url, temp, screenshots):
             expect_popup_session(harness, connected=True, reading=False, can_toggle=True)
             close_popup(harness)
 
-            # An ordinary page with colored HTML buttons must complete the same capture path.
+            # An ordinary page with colored HTML buttons reaches the model even with no documents.
+            uncheck_sources(capture)
+            expect(capture.locator("#withoutDocuments")).to_be_enabled()
+            expect(capture.locator("#withoutDocuments")).to_be_checked()
             another = context.new_page()
             fixture_url = url.replace("127.0.0.1", "localhost") + "/button-quiz-fixture"
             another.route(fixture_url, lambda route: route.fulfill(
@@ -191,6 +201,12 @@ def run(url, temp, screenshots):
             press_action(harness, "start")
             expect_reader(capture, "question")
             expect_popup(harness, "question")
+            expect(capture.locator("#answer .answer-title")).to_have_text("Сосна", timeout=15000)
+            expect(capture.locator("#answer .answer-mode")).to_have_text(PROVENANCE)
+            assert len(model_calls) == 1, model_calls
+            prompt = json.loads(model_calls[0]["messages"][1]["content"])
+            assert prompt["question"] == BUTTON_TASK, prompt
+            assert [option["text"] for option in prompt["options"]] == BUTTON_OPTIONS, prompt
             transcript = capture.locator("#readText")
             for text in [BUTTON_TASK, *BUTTON_OPTIONS]:
                 expect(transcript).to_contain_text(text)
@@ -214,6 +230,8 @@ def run(url, temp, screenshots):
             screenshot_popup(harness, screenshots, "paused")
             close_popup(harness)
             another.close()
+            for source in capture.locator('#lectureList input[type="checkbox"]').all():
+                source.check()
 
             # An extension that disappears during reading must not leave the last answer marked as fresh.
             quiz.locator("#duration").select_option("0")
@@ -229,7 +247,7 @@ def run(url, temp, screenshots):
             expect(capture.locator("#stopTabReader")).to_be_hidden()
             expect(capture.locator("#answer .answer-title")).not_to_have_text("Recall")
             check_dom_extraction(context.new_page())
-            print("Verified activeTab grants, popup switches, capture refresh while connected and reading, source navigation, and removal.")
+            print("Verified activeTab grants, automatic answers without documents, source precedence, capture refresh, and removal.")
         finally:
             context.close()
 
@@ -238,5 +256,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--screenshots", type=Path)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="quizlens-extension-") as directory, app_server() as origin:
-        run(origin, Path(directory), args.screenshots)
+    with tempfile.TemporaryDirectory(prefix="quizlens-extension-") as directory, local_model(choice=3) as (model_url, calls):
+        with app_server(model_url) as origin:
+            run(origin, Path(directory), args.screenshots, calls)

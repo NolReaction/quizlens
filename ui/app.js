@@ -14,7 +14,7 @@ let modelPreferenceChanged = false;
 let modelNames = [];
 let modelError = '';
 const state = {
-  stream:null, regions:[], draftRegions:[], draftDrag:null, lectures:[], selected:new Set(),
+  stream:null, regions:[], draftRegions:[], draftDrag:null, lectures:[], selected:new Set(), sourceListReady:false,
   layoutMode:'auto', autoFocus:null, focusAspect:0, manualAspect:0, snapshotAspect:0,
   resumeCalibration:false, shareAttempt:0, tabReading:false, tabFrame:null,
   previousReading:null, warningKey:null, readingReview:null,
@@ -78,8 +78,9 @@ function drawAnswer(container, info) {
     button.type = 'button';
     button.textContent = 'Ответить без документов';
     button.addEventListener('click', () => {
-      if (state.response !== info || el('withoutDocuments').checked) return;
-      el('withoutDocuments').checked = true;
+      const toggle = el('withoutDocuments');
+      if (state.response !== info || toggle.disabled || toggle.checked) return;
+      toggle.checked = true;
       changeWithoutDocuments();
     });
     container.append(button);
@@ -152,11 +153,15 @@ function showTexts(texts) {
 }
 function idleAnswer() { answer({title:'Жду вопрос', subtitle:'Здесь появится ответ на распознанный вопрос.'}); }
 function showKnowledgeStatus() {
+  const toggle = el('withoutDocuments');
   const hint = el('withoutDocumentsHint');
-  const message = state.selected.size ? 'Чтобы модель отвечала без источников, сними отметки со всех документов.'
-    : !el('model').value ? 'Для этого режима выбери локальную модель в первом разделе.'
-    : el('withoutDocuments').checked ? 'Локальная модель ответит по своим знаниям. Возможны ошибки.'
-    : 'Включи режим, чтобы локальная модель отвечала по своим знаниям.';
+  const hasModel = Boolean(el('model').value);
+  toggle.disabled = !state.sourceListReady || Boolean(state.selected.size) || !hasModel;
+  const message = !state.sourceListReady ? 'Жду список документов.'
+    : state.selected.size ? 'Отмеченные документы имеют приоритет. Сними отметки, чтобы ответила только модель.'
+    : !hasModel ? 'Выбери локальную модель, чтобы получать ответы без документов.'
+    : toggle.checked ? 'Отмеченных документов нет. QuizLens сразу спрашивает локальную модель.'
+    : 'Ответы без документов отключены. QuizLens покажет текст вопроса.';
   if (hint.textContent !== message) hint.textContent = message;
 }
 function controls() {
@@ -224,6 +229,10 @@ function applySettingsChange() {
 
 function changeWithoutDocuments() {
   remember('withoutDocuments', el('withoutDocuments').checked);
+  applyKnowledgePreference();
+}
+
+function applyKnowledgePreference() {
   showKnowledgeStatus();
   if (state.selected.size || !state.running) return;
   state.solveJob?.controller.abort();state.solveJob=null;
@@ -240,7 +249,7 @@ function changeWithoutDocuments() {
   }
 }
 
-el('withoutDocuments').checked = settings().withoutDocuments === true;
+el('withoutDocuments').checked = settings().withoutDocuments !== false;
 el('withoutDocuments').addEventListener('change', changeWithoutDocuments);
 
 let lectureListVersion = 0;
@@ -267,18 +276,22 @@ function renderLectures() {
   });
   controls();
 }
-async function loadLectures() {
+async function loadLectures(refreshKnowledgeAnswer = false) {
   const version = ++lectureListVersion;
   const data = await api('/api/lectures');
   if (version !== lectureListVersion) return;
+  const initialLoad = !state.sourceListReady;
   const previous = state.selected;
   state.lectures = data.lectures;
   const initial = settings().selected;
   state.selected = new Set(state.lectures.map(l=>l.id).filter(id=>!Array.isArray(initial)||initial.includes(id)));
+  state.sourceListReady = true;
   renderLectures();
-  if (previous.size !== state.selected.size || [...previous].some(id => !state.selected.has(id))) {
+  if (initialLoad || previous.size !== state.selected.size || [...previous].some(id => !state.selected.has(id))) {
     answerCache.clear();
     applySettingsChange();
+  } else if (refreshKnowledgeAnswer) {
+    applyKnowledgePreference();
   }
 }
 el('addLecture').addEventListener('click', () => el('files').click());
@@ -336,7 +349,7 @@ async function loadModels() {
     const wasReading = state.running || state.tabReading;
     const desired = settings().model ?? previous;
     let selection = models.includes(desired) ? desired : '';
-    if (wasReading && !modelPreferenceChanged) selection = previous;
+    if (wasReading && previous && !modelPreferenceChanged) selection = previous;
     const options = ['', ...models];
     if (selection && !options.includes(selection)) options.push(selection);
     if (!input.options || input.options.length !== options.length ||
@@ -817,13 +830,19 @@ function cacheResult(key, result) {
 }
 async function solve(texts,key,session,selection) {
   if(state.displayedKey===key) return;
+  if(!state.sourceListReady) {
+    state.displayedKey=key;
+    answer({title:'Текст распознан',subtitle:'Список документов ещё недоступен. Проверь раздел «Документы для ответа».'});
+    status('Жду документы','active');
+    return;
+  }
   const model=el('model').value;
   const requestedKnowledge=!state.selected.size && el('withoutDocuments').checked;
   const withoutDocuments=Boolean(requestedKnowledge && model);
   if(!state.selected.size && !withoutDocuments) {
     state.displayedKey=key;
     answer({title:'Текст распознан',enableKnowledge:Boolean(model),subtitle:model
-      ? 'Отметь документ для ответа с цитатой или попроси локальную модель ответить по своим знаниям.'
+      ? 'Ответы без документов отключены. Включи их, чтобы спросить локальную модель.'
       : 'Выбери локальную модель для ответа без документов или отметь документ для поиска.'});
     status('Текст распознан','active');
     return;
@@ -1208,8 +1227,14 @@ window.addEventListener('storage', event => {
         modelPreferenceChanged = true;
         loadModels();
       }
+      const knowledgeChanged = before.withoutDocuments !== after.withoutDocuments;
+      if (knowledgeChanged) {
+        el('withoutDocuments').checked = after.withoutDocuments !== false;
+      }
       if (JSON.stringify(before.selected) !== JSON.stringify(after.selected)) {
-        loadLectures().catch(error => { el('fileInfo').textContent = error.message; });
+        loadLectures(knowledgeChanged).catch(error => { el('fileInfo').textContent = error.message; });
+      } else if (knowledgeChanged) {
+        applyKnowledgePreference();
       }
     } catch { /* Ignore unrelated or malformed settings. */ }
   }

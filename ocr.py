@@ -592,6 +592,63 @@ def _colored_card_pages(image, cards, image_ops):
     return pages, [stem_box, *cards]
 
 
+def _reliable_card_group(group):
+    return bool(group) and median(part['confidence'] for part in group) >= 65
+
+
+def _short_card_reading(pages, groups, question, binary, languages):
+    """Give isolated short labels line context while retaining their own boxes."""
+    from PIL import Image
+
+    # The crop builder adds 10 pixels of white around each line. Keep this
+    # limited to short labels so sentences retain their ordinary reading path.
+    if not all(20 < page.height <= 112 and 0 < page.width - 20 <= 3.2 * (page.height - 20) for page in pages):
+        return groups
+    chemical_symbol = "eng" in languages and all(
+        re.search(pattern, question, re.I)
+        for pattern in (r"\b(?:химическ\w*|chemical)\b", r"\b(?:символ\w*|обознач\w*|symbols?)\b")
+    )
+    if not chemical_symbol and all(map(_reliable_card_group, groups)):
+        return groups
+    # Use the prompt only to choose script priority. Some short Latin and
+    # Cyrillic glyphs are identical, and chemical element symbols use Latin.
+    read_languages = "+".join(sorted(languages.split("+"))) if chemical_symbol else languages
+    padding, gap = 20, 13
+    row = Image.new("L", (2 * padding + sum(page.width + gap for page in pages),
+                         2 * padding + max(page.height for page in pages)), 255)
+    lefts = []
+    offset = padding
+    for page in pages:
+        row.paste(page, (offset, padding))
+        lefts.append(offset)
+        offset += page.width + gap
+    try:
+        parts, = _read_tsv([row], binary, read_languages, "7", timeout=2)
+    except RuntimeError:
+        return groups
+    choices = [[] for _ in pages]
+    for part in parts:
+        match = next((i for i, (left, page) in enumerate(zip(lefts, pages))
+                      if left <= part["x"] and part["x"] + part["w"] <= left + page.width
+                      and padding <= part["y"] and part["y"] + part["h"] <= padding + page.height), None)
+        if match is None:
+            return groups  # A merged reading can span more than one option.
+        choices[match].append(dict(part, x=part["x"] - lefts[match], y=part["y"] - padding))
+    if not all(map(_reliable_card_group, choices)):
+        return groups
+    if chemical_symbol:
+        # A language preference may distinguish visually similar letters,
+        # but must not change a previously reliable number, sign or formula.
+        aliases = str.maketrans("АВЕКМНОРСТУХаеорсхуи", "ABEKMHOPCTYXaeopcxyu")
+        read = [" ".join(part["text"] for part in group) for group in choices]
+        if all(re.fullmatch(r"[A-Za-z]{1,3}", text) for text in read) and all(
+            not _reliable_card_group(group) or " ".join(part["text"] for part in group).translate(aliases) == text
+            for group, text in zip(groups, read)
+        ):
+            return choices
+    return [original if _reliable_card_group(original) else retry for original, retry in zip(groups, choices)]
+
+
 def _read_colored_cards(image, cards, binary, languages):
     from PIL import ImageOps
 
@@ -603,12 +660,14 @@ def _read_colored_cards(image, cards, binary, languages):
         groups = _read_tsv(pages, binary, languages, "11", timeout=5)
     except RuntimeError:
         return None
+    question = ocr_texts(groups[:1])[0]
+    groups[1:] = _short_card_reading(pages[1:], groups[1:], question, binary, languages)
     texts = ocr_texts(groups)
     question = texts[0]
     metadata = re.match(r"^(?:игрок|раунд\s*\d|вопрос\s*\d|озвучка|player|round\s*\d|question\s*\d)\b", question, re.I)
     if metadata or (len(question.split()) < 3 and '?' not in question) or not all(texts) or len({s.casefold() for s in texts[1:]}) != 4:
         return None
-    if not all(group and median(part['confidence'] for part in group) >= 65 for group in groups):
+    if not all(map(_reliable_card_group, groups)):
         return None
     width, height = image.size
     regions = [dict(x=x/width, y=y/height, w=(r-x)/width, h=(b-y)/height) for x,y,r,b in boxes]
@@ -622,7 +681,7 @@ def _read_colored_cards(image, cards, binary, languages):
 
 def _unreadable_color_stack():
     return {'regions': [], 'texts': [], 'captureStatus': 'partial',
-            'hint': 'Нашёл цветные карточки, но не смог прочитать весь текст. Увеличь текст в окне квиза и покажи все варианты.'}
+            'hint': 'Вижу цветные карточки. Часть текста пока не читается. Попробуй выделить вопрос и варианты в ручной разметке.'}
 
 
 def _tesseract(raw_image, regions, vocabulary=None, *, review=False):

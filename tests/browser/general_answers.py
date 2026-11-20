@@ -1,4 +1,4 @@
-"""Exercise the browser toggle and the real local-model route without selected documents."""
+"""Exercise automatic local-model answers and the opt-out with the real server."""
 
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,7 +15,7 @@ PROVENANCE = "Ответ модели · без источника"
 
 
 @contextmanager
-def local_model():
+def local_model(choice=1):
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -41,7 +41,7 @@ def local_model():
                 self.send_error(404)
                 return
             calls.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
-            self.send_json({"choices": [{"message": {"content": '{"choices":[1]}'}}],
+            self.send_json({"choices": [{"message": {"content": json.dumps({"choices": [choice]})}}],
                             "usage": {"prompt_tokens": 123, "completion_tokens": 8}})
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
@@ -63,27 +63,31 @@ def check_general_answers(browser, url, calls, directory):
         if request.url.endswith("/api/solve"):
             requests.append(request.post_data_json)
 
-    page.on("request", record_solve)
-    try:
-        page.goto(url)
-        uncheck_sources(page)
-        page.locator("#model").select_option(MODEL)
-        toggle = page.locator("#withoutDocuments")
-        expect(toggle).to_be_enabled()
-        expect(toggle).not_to_be_checked()
-
+    def read_question():
         # Exercise the usual capture-to-answer controller. Only supply the recognized frame.
         page.evaluate("""fields => {
             window.quizLensTabCapture.start();
             window.quizLensTabCapture.read(fields, {selectionMode:'single', expectedCount:1});
         }""", [QUESTION, *OPTIONS])
+
+    page.on("request", record_solve)
+    try:
+        page.goto(url)
+        uncheck_sources(page)
+        model = page.locator("#model")
+        toggle = page.locator("#withoutDocuments")
+        expect(toggle).to_be_disabled()
+        model.select_option(MODEL)
+        expect(toggle).to_be_enabled()
+        expect(toggle).to_be_checked()
+
         answer = page.locator("#answer")
         title = answer.locator(".answer-title")
-        expect(title).to_have_text("Текст распознан")
+        action = answer.get_by_role("button", name="Ответить без документов", exact=True)
         assert not requests and not calls
 
         with page.expect_response(lambda response: response.url.endswith("/api/solve"), timeout=15000) as observed:
-            answer.get_by_role("button", name="Ответить без документов", exact=True).click()
+            read_question()
         response = observed.value
         assert response.ok, response.text()
         expect(toggle).to_be_checked()
@@ -111,10 +115,21 @@ def check_general_answers(browser, url, calls, directory):
         expect(answer.get_by_text(PROVENANCE, exact=True)).to_have_count(0)
         expect(page.locator("#readText li")).to_have_text(list(OPTIONS))
 
-        toggle.check()
+        action.click()
+        expect(toggle).to_be_checked()
         expect(title).to_have_text(OPTIONS[0])
         expect(answer.get_by_text(PROVENANCE, exact=True)).to_be_visible()
+
+        toggle.uncheck()
+        page.reload()
+        expect(model).to_have_value(MODEL)
+        expect(toggle).to_be_enabled()
+        expect(toggle).not_to_be_checked()
+        expect(page.locator("#lectureList input:checked")).to_have_count(0)
+        read_question()
+        expect(title).to_have_text("Текст распознан")
+        expect(action).to_be_visible()
         assert len(requests) == 1 and len(calls) == 1
-        print("Verified explicit model answers, no source claims or journal input, and safe reuse across the mode toggle.")
+        print("Verified automatic model answers, no source claims or journal input, and opt-out after refresh.")
     finally:
         context.close()
