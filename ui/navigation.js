@@ -17,6 +17,8 @@
   const toggle = menu.querySelector('summary');
   const label = toggle.querySelector('span');
   const panel = menu.querySelector('.nav-popover');
+  panel.inert = true;
+  menu.addEventListener('toggle', () => { panel.inert = !menu.open; });
   const updateLink = document.getElementById('navUpdates');
   for (const link of panel.querySelectorAll('a')) {
     if (link !== updateLink && link.pathname === location.pathname) link.setAttribute('aria-current', 'page');

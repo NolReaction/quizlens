@@ -128,6 +128,34 @@ def check_model_choices(page, directory, prefix):
     page.locator("#device-switch").click()
 
 
+def check_disclosure_motion(page):
+    manager = page.locator("#sourceManager")
+    sizes = manager.evaluate("""details => {
+        const height = () => details.getBoundingClientRect().height;
+        function halfHeight(open) {
+            details.open = open;
+            const slide = details.getAnimations().find(a => a.transitionProperty === 'grid-template-rows');
+            if (!slide) throw Error('Missing source disclosure transition');
+            slide.pause();
+            slide.currentTime = slide.effect.getTiming().duration / 2;
+            const halfway = height();
+            slide.finish();
+            return [halfway, height()];
+        }
+        return [height(), ...halfHeight(true), ...halfHeight(false)];
+    }""")
+    closed, growing, full, shrinking, final = sizes
+    assert closed < growing < full and final < shrinking < full and abs(closed - final) < 1, sizes
+    page.emulate_media(reduced_motion="reduce")
+    assert manager.evaluate("""el => {
+        el.open = true;
+        const running = el.getAnimations({subtree:true}).length;
+        el.open = false;
+        return running === 0;
+    }""")
+    page.emulate_media(reduced_motion="no-preference")
+
+
 def check_service_menu(page, origin):
     toggle = page.locator("#serviceMenu > summary")
     visible_action(toggle)
@@ -245,6 +273,9 @@ def check_first_run(browser, url, width, height, directory):
         expect(page.locator("#visual")).to_be_hidden()
         expect(page.locator("a[href*='QuizLens-Extension.zip']")).to_have_count(0)
         expect(page.locator("#sourceManager")).not_to_have_attribute("open", "")
+        expect(page.locator("#tabReaderStatus")).to_have_attribute("data-state", "undetected", timeout=15000)
+        expect(page.locator("#stopTabReader")).to_be_hidden()
+        check_disclosure_motion(page)
         check_service_menu(page, url)
         page_fits(page)
         screenshot(page, directory, prefix + "-capture")

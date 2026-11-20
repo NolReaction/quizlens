@@ -119,13 +119,39 @@
 .ocr-component[data-status="ready"] {border-color:var(--mint)}
 .ocr-component .button {margin-top:10px}
 .folder-result {overflow-wrap:anywhere; user-select:text}
-#tabReaderStatus:not(:empty) {margin:.7rem 0}
+#tabReaderSetup {
+  margin-bottom:12px; padding:0 12px; border:1px solid var(--border);
+  background:#162027; border-radius:12px;
+}
+#tabReaderSetup summary {
+  display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:5px 10px;
+  padding:12px 0; align-items:center;
+}
+#tabReaderSetup summary strong {font-size:.98rem}
+#tabReaderSetup summary::after {grid-column:3; grid-row:1; justify-self:end}
+#tabReaderHint {
+  grid-column:1 / -1; color:var(--muted); line-height:1.45; overflow-wrap:anywhere; font-size:.91rem;
+}
+#tabReaderStatus {
+  display:inline-flex; align-items:center; gap:6px; justify-self:start;
+  font-size:.8rem; font-weight:600; color:var(--muted);
+}
+#tabReaderStatus::before {
+  content:""; flex:none; width:7px; height:7px; border-radius:50%; background:currentColor;
+}
+#tabReaderStatus:is([data-state="available"],[data-state="paired"],[data-state="waiting"],[data-state="question"]) {color:var(--mint)}
+#tabReaderStatus:is([data-state="disconnected"],[data-state="partial"],[data-state="multiple"]) {color:var(--warn)}
+#tabReaderSetup .menu-content {padding-bottom:12px}
+#tabReaderInstall:has(button[hidden]) {display:none}
+@media (max-width:510px) {
+  #tabReaderSetup summary {grid-template-columns:1fr auto}
+  #tabReaderSetup summary::after {grid-column:2}
+  #tabReaderStatus {grid-column:1 / -1}
+}
 #stopTabReader {margin-bottom:12px}
 @media (prefers-reduced-motion:no-preference) {
   #sessionView .button, #sessionView .mini-button, .capture-menu > summary {transition:background-color .16s ease, border-color .16s ease, color .16s ease}
   .capture-menu > summary::after {transition:transform .16s ease}
-  .capture-menu[open] > .menu-content {animation:capture-menu-enter .16s ease-out}
-  @keyframes capture-menu-enter {from {opacity:0; transform:translateY(-3px)} to {opacity:1; transform:translateY(0)}}
 }
 @media (max-width:450px) {
   .capture-menu > summary {flex-wrap:wrap; gap:6px; font-size:.95rem}

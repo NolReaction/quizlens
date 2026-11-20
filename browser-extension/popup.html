@@ -1,3 +1,31 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><title>QuizLens</title><link rel="stylesheet" href="popup.css"><script defer src="popup.js"></script></head>
-<body><h1>QuizLens</h1><p id="message" role="status">Проверяю вкладку…</p><button id="action" disabled>Подождите</button></body></html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="dark">
+  <title>QuizLens · Чтение вкладки</title>
+  <link rel="stylesheet" href="popup.css">
+  <script defer src="popup.js"></script>
+</head>
+<body data-state="loading" data-tone="idle">
+  <header class="brand">
+    <img class="brand-mark" src="icon-48.png" width="38" height="38" alt="">
+    <div><h1>Quiz<span>Lens</span></h1><p>Чтение вкладки</p></div>
+  </header>
+  <main>
+    <section class="status-card" role="status" aria-live="polite" aria-atomic="true">
+      <div class="status-heading"><i class="signal" aria-hidden="true"></i><h2 id="message" tabindex="-1">Проверяю связь…</h2></div>
+      <p id="description">Определяю состояние текущей вкладки.</p>
+    </section>
+    <dl id="connection" hidden>
+      <div><dt>Приложение</dt><dd id="receiverState"></dd></div>
+      <div id="sourceRow"><dt id="sourceLabel">Вкладка квиза</dt><dd id="sourceTitle" dir="auto"></dd></div>
+    </dl>
+    <div id="actions" class="actions">
+      <button id="action" type="button" class="button" disabled hidden></button>
+      <button id="focusCapture" type="button" class="button" hidden>Перейти в QuizLens</button>
+      <button id="focusSource" type="button" class="button" hidden>Перейти к квизу</button>
+    </div>
+  </main>
+</body>
+</html>

@@ -39,7 +39,7 @@ class ReleaseAssetsTests(unittest.TestCase):
                 package.writestr(prefix + "packaging/REPOSITORY", repository + "\n")
                 package.writestr(prefix.split("/")[0] + "/README.md", "Как открыть QuizLens\n")
                 for filename in assets.EXTENSION_FILES:
-                    content = (self.root / "browser-extension" / filename).read_bytes().replace(b"\r\n", b"\n")
+                    content = (self.root / "browser-extension" / filename).read_bytes()
                     package.writestr(prefix.split("/")[0] + "/browser-extension/" + filename, content)
                     if name == "QuizLens-Mac.zip":
                         package.writestr(prefix + "browser-extension/" + filename, content)

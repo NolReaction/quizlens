@@ -22,7 +22,7 @@ function fillRect(frame, x, y, w, h) {
 
 // Exercise the shipped tick/confirm/solve functions with a controlled camera,
 // clock and local endpoints. Keep aborted requests deliverable to expose races.
-async function makeSession() {
+async function makeSession({modelEndpoint, savedModel} = {}) {
   const port = { now: 0, frame: paint(), texts: initial, ocr: [], detections: [], lookups: [], answers: [] };
   function request(path, payload) {
     return new Promise(resolve => {
@@ -41,6 +41,7 @@ async function makeSession() {
   };
   const elements = new Map();
   const document = {
+    visibilityState: 'visible',
     getElementById(id) {
       if(!elements.has(id)) elements.set(id, Object.assign(Object.create(fakeElement), {style:{}}));
       return elements.get(id);
@@ -49,15 +50,22 @@ async function makeSession() {
   };
   fakeElement.ownerDocument = document;
   // The capture loop needs only resolved video dimensions and its regular helpers.
+  const events = new Map();
   const context = vm.createContext({
     document, port, request, AbortController, performance: { now: () => port.now },
-    localStorage: { getItem() { return null; } }, ResizeObserver: class { observe() {} },
-    Option: class {}, window: { addEventListener() {}, clearInterval() {},setInterval() { return 1; } },
+    localStorage: { getItem() { return JSON.stringify({model:savedModel}); } }, ResizeObserver: class { observe() {} },
+    Event, Option: class {}, window: {
+      addEventListener(name, fn) { events.set(name, fn); },
+      dispatchEvent(event) { events.get(event.type)?.(event); },
+      clearInterval() {}, setInterval() { return 1; },
+    },
     navigator: {mediaDevices: {getDisplayMedia:async () => {
       const track={addEventListener(){},stop(){}};
       return {getTracks:()=>[track],getVideoTracks:()=>[track]};
     }}},
-    fetch: async path => ({ ok: true, json: async () => path === '/api/models' ? { models: [] } : { lectures: [] } }),
+    fetch: async path => path === '/api/models' && modelEndpoint ? modelEndpoint() : {
+      ok: true, json: async () => path === '/api/models' ? {models: []} : {lectures: []}
+    },
   });
   vm.runInContext(readFileSync(join(__dirname, '../ui/token-usage.js'), 'utf8'), context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/answer-proof.js'), 'utf8'), context);
@@ -96,8 +104,87 @@ async function makeSession() {
     job.resolve({ choice, source: 'Лекция', excerpt: 'Выдержка' });
     await flush();
   }
-  return { port, api, step, read, finish, flush, node:id=>elements.get(id) };
+  return { port, api, step, read, finish, flush, events, node:id=>elements.get(id) };
 }
+
+test('returning from LM Studio refreshes readiness once and preserves the chosen model across a disconnect', async () => {
+  let response = {ok:false, json:async () => ({error:'Нет связи с локальным сервером.'})};
+  let calls = 0;
+  const endpoint = () => { calls++; return response; };
+  const {port, api, node, events, flush} = await makeSession({modelEndpoint:endpoint, savedModel:'qwen'});
+  const model = node('model');
+  const status = node('modelInfo');
+  api.state.running = false;
+  api.state.stream = null;
+  assert.match(status.textContent, /Сервер модели недоступен/);
+  const inventory = models => ({ok:true, json:async () => ({models})});
+  response = inventory([]);
+  port.now += 1500;
+  events.get('focus')();
+  events.get('visibilitychange')();
+  await flush();
+  assert.equal(calls, 2);
+  assert.match(status.textContent, /Сервер подключён.*Добавь текстовую модель/);
+  response = inventory(['qwen']);
+  port.now += 1500;
+  events.get('visibilitychange')();
+  await flush();
+  assert.equal(model.value, 'qwen');
+  assert.match(status.textContent, /Выбранная модель доступна/);
+  response = {ok:false, json:async () => ({error:'Нет связи с локальным сервером.'})};
+  await node('refresh').listeners.click();
+  assert.equal(model.value, 'qwen');
+  assert.match(status.textContent, /Сервер модели недоступен/);
+
+  let finish;
+  response = new Promise(resolve => { finish = resolve; });
+  port.now += 1500;
+  events.get('focus')();
+  const duringCheck = calls;
+  await node('refresh').listeners.click();
+  assert.equal(calls, duringCheck);
+  api.state.running = true;
+  const session = api.state.session;
+  finish(inventory([]));
+  await flush();
+  assert.equal(api.state.session, session);
+  assert.equal(api.state.running, true);
+  assert.equal(model.value, 'qwen');
+  port.now += 1500;
+  events.get('focus')();
+  assert.equal(calls, duringCheck);
+});
+
+test('a manual OCR installation is detected on return without launching another installer', async () => {
+  const box = {dataset:{}};
+  const status = {};
+  const button = {addEventListener() {}};
+  const elements = {ocrComponent:box, ocrComponentStatus:status, ocrInstall:button};
+  const events = new Map();
+  let requests = 0;
+  let component = {status:'missing', message:'Нужен Tesseract.', canInstall:true};
+  const fetch = async (_path, options) => {
+    requests++;
+    assert.equal(options.method, undefined);
+    return {ok:true, json:async () => component};
+  };
+  vm.runInNewContext(readFileSync(join(__dirname, '../ui/components.js'), 'utf8'), {
+    document:{getElementById:id => elements[id]}, window:{addEventListener:(name, fn) => events.set(name, fn)},
+    location:{hash:''}, fetch, clearTimeout
+  });
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  await flush();
+  assert.equal(box.hidden, false);
+  assert.equal(button.hidden, false);
+  component = {status:'ready', message:'Распознавание готово.', canInstall:false};
+  events.get('quizlens-check-ocr')();
+  events.get('quizlens-check-ocr')();
+  await flush();
+  assert.equal(requests, 2);
+  assert.equal(box.dataset.status, 'ready');
+  assert.equal(box.hidden, true);
+  assert.equal(button.hidden, true);
+});
 
 test('a moving progress bar and timer cannot invalidate an OCR or lookup in flight', async () => {
   const { port, api, step, finish } = await makeSession();

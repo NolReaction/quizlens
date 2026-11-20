@@ -6,6 +6,7 @@
   const install = document.getElementById('ocrInstall');
   let timer;
   let previous;
+  let checking = false;
   let requestedInstall = false;
 
   function updateVisibility() {
@@ -24,6 +25,8 @@
   followComponentLink();
 
   async function refresh(start = false) {
+    if (checking) return;
+    checking = true;
     clearTimeout(timer);
     install.disabled = true;
     if (start) {
@@ -50,9 +53,13 @@
       if (start || previous?.status === 'installing') timer = setTimeout(refresh, 3000);
       else { box.dataset.status = 'unknown'; install.disabled = false; }
     } finally {
+      checking = false;
       updateVisibility();
     }
   }
+  window.addEventListener('quizlens-check-ocr', () => {
+    if (box.dataset.status !== 'installing') refresh();
+  });
   install.addEventListener('click', () => refresh(true));
   refresh();
 })();

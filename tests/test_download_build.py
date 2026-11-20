@@ -61,5 +61,10 @@ class TestPublicDownload(unittest.TestCase):
                     manifest = json.loads(bundle.read("browser-extension/manifest.json"))
                     for name in (manifest["background"]["service_worker"], manifest["action"]["default_popup"]):
                         self.assertIn("browser-extension/" + name, bundle.namelist())
+                    for size, name in manifest["icons"].items():
+                        self.assertEqual(name, manifest["action"]["default_icon"][size])
+                        icon = bundle.read("browser-extension/" + name)
+                        self.assertTrue(icon.startswith(b"\x89PNG\r\n\x1a\n"))
+                        self.assertEqual(icon, (builder.SOURCE.parent / "browser-extension" / name).read_bytes())
             with self.assertRaises(ValueError):
                 builder.build("example/..", output)

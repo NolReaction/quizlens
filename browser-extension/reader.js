@@ -127,13 +127,23 @@
 
   globalThis.quizLensReadVisibleQuestion = read;
   let observer, timer, previous='', key;
-  function snapshot() {
+  async function snapshot() {
     timer=null;
     if (!key) return;
+    if (!chrome.runtime.id) { stop(); return; }
+    const sessionKey=key;
     const frame=read(), signature=JSON.stringify(frame);
     if (signature===previous) return;
     previous=signature;
-    chrome.runtime.sendMessage({command:'frame',key,frame}).catch(() => { previous=''; });
+    try {
+      const result=await chrome.runtime.sendMessage({command:'frame',key:sessionKey,frame});
+      if (result?.ok===false && key===sessionKey) stop();
+    } catch {
+      if (key===sessionKey) {
+        if (chrome.runtime.id) previous='';
+        else stop();
+      }
+    }
   }
   function schedule() { if (key && !timer) timer=setTimeout(snapshot,220); }
   function stop() {
@@ -158,7 +168,8 @@
       addEventListener('resize',schedule);
       addEventListener('scroll',schedule,true);
       schedule();
-    } else if (message.type==='stop' && key===message.key) stop();
+    } else if (key !== message.key || !key) return;
+    else if (message.type==='stop') stop();
     reply({ok:true});
   });
   addEventListener('pagehide',stop);

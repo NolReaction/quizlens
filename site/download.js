@@ -158,23 +158,57 @@ function enableNavigation(doc, view) {
   const links = Array.from(nav.querySelectorAll('a'));
   const sections = links.map(link => doc.getElementById(link.hash.slice(1)));
   const compact = view.matchMedia('(max-width: 740px)');
-  function setOpen(open) {
+  const motion = view.matchMedia('(prefers-reduced-motion: no-preference)');
+  const closedPanel = {opacity:'0', transform:'translateY(-5px) scale(.98)'};
+  const shownPanel = {opacity:'1', transform:'none'};
+  let animation;
+
+  function setOpen(open, animate = true) {
+    const hide = compact.matches && !open;
     button.hidden = !compact.matches;
     button.setAttribute('aria-expanded', String(open && compact.matches));
-    nav.hidden = compact.matches && !open;
+    if (animate && hide === nav.inert && (animation || hide === nav.hidden)) return;
+    nav.inert = hide;
+
+    // Sample the current visual state before cancelling so another tap can reverse it.
+    const transition = animate && compact.matches && motion.matches && typeof nav.animate === 'function';
+    let from = closedPanel;
+    if (transition && !nav.hidden) {
+      const current = view.getComputedStyle(nav);
+      from = {opacity:current.opacity, transform:current.transform};
+    }
+    animation?.cancel();
+    animation = null;
+    if (!transition) {
+      nav.hidden = hide;
+      return;
+    }
+    nav.hidden = false;
+    const next = nav.animate([from, hide ? closedPanel : shownPanel], {
+      duration:hide ? 135 : 180, easing:'cubic-bezier(.2,.8,.2,1)'
+    });
+    animation = next;
+    next.onfinish = () => {
+      if (animation !== next) return;
+      nav.hidden = hide;
+      animation = null;
+    };
   }
   function closeOnEscape(event) {
-    if (event.key === 'Escape' && compact.matches && !nav.hidden) {
+    if (event.key === 'Escape' && compact.matches && !nav.inert) {
       setOpen(false);
       button.focus();
     }
   }
-  compact.addEventListener('change', () => setOpen(false));
-  button.addEventListener('click', () => setOpen(nav.hidden));
+  compact.addEventListener('change', () => setOpen(false, false));
+  motion.addEventListener('change', () => setOpen(!nav.inert, false));
+  button.addEventListener('click', () => setOpen(nav.inert));
   doc.addEventListener('keydown', closeOnEscape);
-  doc.addEventListener('click', event => {
+  function closeOutside(event) {
     if (!nav.contains(event.target) && !button.contains(event.target)) setOpen(false);
-  });
+  }
+  doc.addEventListener('click', closeOutside);
+  doc.addEventListener('focusin', closeOutside);
   links.forEach((link, index) => link.addEventListener('click', () => {
     if (compact.matches) {
       setOpen(false);
@@ -204,7 +238,7 @@ function enableNavigation(doc, view) {
   }
   view.addEventListener('scroll', onScroll, {passive:true});
   view.addEventListener('resize', onScroll);
-  setOpen(false);
+  setOpen(false, false);
   indicateSection();
 }
 

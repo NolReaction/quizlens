@@ -47,6 +47,27 @@ def check_page(browser, origin, viewport):
             menu.click()
         else:
             expect(menu).to_be_hidden()
+        if mobile:
+            # Reverse a transition halfway through, and use the OS preference to finish instantly.
+            page.emulate_media(reduced_motion="no-preference")
+            states = page.evaluate("""() => {
+                const button = document.getElementById('nav-toggle');
+                const menu = document.getElementById('site-nav');
+                function sample() {
+                    const animation = menu.getAnimations()[0];
+                    animation.pause();
+                    animation.currentTime = animation.effect.getTiming().duration / 2;
+                    return [button.getAttribute('aria-expanded'), menu.inert, menu.hidden];
+                }
+                button.click();
+                const closing = sample();
+                button.click();
+                return [closing, sample()];
+            }""")
+            assert states == [["false", True, False], ["true", False, False]]
+            page.emulate_media(reduced_motion="reduce")
+            expect(nav).to_be_visible()
+            assert nav.evaluate("el => el.getAnimations().length") == 0
         nav.get_by_role("link", name="Расширение").click()
         extension = page.locator("#extension")
         expect(extension).to_be_in_viewport()

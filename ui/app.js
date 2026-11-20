@@ -6,7 +6,10 @@ const validFields = n => Number.isInteger(n) && n >= 3 && n <= 9;
 const manualAreaCount = () => Number(el('areaCount').value) + 1;
 const storageKey = 'quizlens.settings.v1';
 const answerCache = new Map();
-let modelLoadVersion = 0;
+let checkingModels = false;
+let modelPreferenceChanged = false;
+let modelNames = [];
+let modelError = '';
 const state = {
   stream:null, regions:[], draftRegions:[], draftDrag:null, lectures:[], selected:new Set(),
   layoutMode:'auto', autoArmed:false, autoFocus:null, focusAspect:0, snapshotAspect:0,
@@ -260,38 +263,75 @@ el('files').addEventListener('change', async event => {
     el('fileInfo').textContent = 'Добавлено файлов — '+complete+'. '+fileErrors.join(' ');
   } finally { event.target.value=''; el('addLecture').disabled=false; }
 });
-async function loadModels() {
-  const version = ++modelLoadVersion;
-  const input = el('model');
-  el('refresh').disabled = true;
-  let models = [], errorMessage = '';
-  try {
-    const list = await api('/api/models');
-    models = list.models || [];
-  } catch(error) {
-    errorMessage = error.message.startsWith('Нет связи с локальным сервером')
-      ? 'Сервер недоступен. Для подключения открой настройку LM Studio. Пробные карточки уже доступны.'
-      : error.message;
+function showModelStatus() {
+  const hint = el('modelInfo');
+  const current = el('model').value;
+  if (modelError) {
+    hint.textContent = modelError;
+  } else if (!modelNames.length) {
+    hint.textContent = 'Сервер подключён. Добавь текстовую модель в LM Studio или используй карточки.';
+  } else if (current && modelNames.includes(current)) {
+    hint.textContent = 'Сервер подключён. Выбранная модель доступна для ответов.';
+  } else if (settings().model) {
+    hint.textContent = 'Выбранной модели сейчас нет в списке сервера. Выбери доступную модель или карточки.';
+  } else {
+    hint.textContent = 'Включены карточки и поиск. Для ответов модели выбери её в списке.';
   }
-  if (version!==modelLoadVersion) return;
-  const desired = settings().model ?? '';
-  const old = input.value;
-  input.replaceChildren(new Option('Карточки и поиск (без модели)',''));
-  models.forEach(name=>input.add(new Option(name,name)));
-  input.value = models.includes(desired) ? desired : '';
-  el('modelInfo').textContent = errorMessage || (input.value ? 'Модель доступна через локальный сервер.'
-    : models.length ? 'Выбери модель для ответов на новые формулировки.'
-    : 'Карточки работают сразу. Для ответов по документам загрузи модель и включи сервер в Bionic или LM Studio.');
-  el('refresh').disabled = false;
-  if (old!==input.value) applySettingsChange(); else controls();
 }
-el('refresh').addEventListener('click',loadModels);
+
+async function loadModels() {
+  if (checkingModels) return;
+  checkingModels = true;
+  el('refresh').disabled = true;
+  try {
+    const {models} = await api('/api/models');
+    const input = el('model');
+    const previous = input.value;
+    const wasReading = state.running || state.tabReading;
+    const desired = settings().model ?? previous;
+    let selection = models.includes(desired) ? desired : '';
+    if (wasReading && !modelPreferenceChanged) selection = previous;
+    const options = ['', ...models];
+    if (selection && !options.includes(selection)) options.push(selection);
+    if (!input.options || input.options.length !== options.length ||
+        options.some((name, i) => input.options[i].value !== name)) {
+      input.replaceChildren(...options.map(name => new Option(name || 'Карточки и поиск (без модели)', name)));
+    }
+    input.value = selection;
+    modelNames = models;
+    modelError = '';
+    if (previous !== selection) applySettingsChange();
+  } catch (error) {
+    modelError = error instanceof TypeError ? 'Нет связи с QuizLens. Проверь окно запуска приложения.'
+      : error.message.startsWith('Нет связи с локальным сервером')
+        ? 'Сервер модели недоступен. Запусти его в LM Studio или Bionic. Карточками можно пользоваться сразу.'
+        : error.message;
+  } finally {
+    modelPreferenceChanged = false;
+    checkingModels = false;
+    el('refresh').disabled = false;
+    showModelStatus();
+  }
+}
+
+let lastReadinessCheck = -Infinity;
+function refreshWhenIdle() {
+  if (document.visibilityState !== 'visible' || state.stream || state.running || state.tabReading ||
+      window.quizLensUpdateActivity?.busy() || performance.now() - lastReadinessCheck < 1000) return;
+  lastReadinessCheck = performance.now();
+  loadModels();
+  window.dispatchEvent(new Event('quizlens-check-ocr'));
+}
+window.addEventListener('focus', refreshWhenIdle);
+window.addEventListener('visibilitychange', refreshWhenIdle);
+window.addEventListener('pageshow', event => { if (event.persisted) refreshWhenIdle(); });
+el('refresh').addEventListener('click', loadModels);
 el('selectionMode').addEventListener('change', () => {
   if (state.running) start();
 });
 el('model').addEventListener('change', () => {
   remember('model',el('model').value);
-  el('modelInfo').textContent = el('model').value ? 'Модель доступна через локальный сервер.' : 'Точный ответ доступен для вопросов из проверенных карточек.';
+  showModelStatus();
   applySettingsChange();
 });
 
@@ -1068,7 +1108,10 @@ window.addEventListener('storage', event => {
     try {
       const before = JSON.parse(event.oldValue || '{}') || {};
       const after = JSON.parse(event.newValue || '{}') || {};
-      if (before.model !== after.model) loadModels();
+      if (before.model !== after.model) {
+        modelPreferenceChanged = true;
+        loadModels();
+      }
       if (JSON.stringify(before.selected) !== JSON.stringify(after.selected)) {
         loadLectures().catch(error => { el('fileInfo').textContent = error.message; });
       }

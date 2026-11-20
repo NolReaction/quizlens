@@ -67,7 +67,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           python -m playwright install chromium
-          xvfb-run -a python tests/browser/extension_capture.py
+          xvfb-run -a python tests/browser/extension_capture.py --screenshots "$RUNNER_TEMP/quizlens-screens"
       - name: Save first-run screenshots
         if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

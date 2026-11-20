@@ -17,6 +17,10 @@ from urllib.request import ProxyHandler, Request, build_opener
 import zipfile
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from extension_package import package_bytes
+
+
 def smoke(archive, signing):
     expected = (Path(__file__).resolve().parent / "VERSION").read_text(encoding="ascii").strip()
     with tempfile.TemporaryDirectory(prefix="QuizLens release ") as directory:
@@ -118,7 +122,7 @@ def smoke(archive, signing):
                     if extracted.testzip() or set(extracted.namelist()) != names:
                         raise ValueError("Local app served an incomplete extension archive")
                     for name in names:
-                        if extracted.read(name) != (folder / name).read_bytes().replace(b"\r\n", b"\n"):
+                        if extracted.read(name) != package_bytes(name, (folder / name).read_bytes()):
                             raise ValueError(f"Different extension on the live local download route: {name}")
             profile = {"platform": "windows", "accelerator": "discrete", "ramGiB": 32, "vramGiB": 10}
             request = Request(url + "/api/advisor", data=json.dumps(profile).encode(),

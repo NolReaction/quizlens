@@ -1,4 +1,7 @@
-.top {position:relative; z-index:4; background:#10191e}
+.top {
+  position:relative; z-index:4; background:linear-gradient(110deg, #121e22, #10191e 55%);
+  box-shadow:inset 0 -1px rgb(161 204 187 / 4%);
+}
 .top .bar {height:66px; min-height:0; flex-wrap:nowrap; gap:16px; padding-block:0}
 .top .primary-nav {width:auto; display:flex; align-items:center; flex-wrap:nowrap; gap:12px}
 .nav-sections {display:flex; align-items:center; gap:4px}
@@ -24,8 +27,8 @@
 .nav-popover {
   position:absolute; z-index:5; inset:auto 0 auto auto; margin-top:8px; padding:6px;
   width:16rem; max-width:calc(100vw - 24px); max-height:calc(100dvh - 80px);
-  overflow:auto; border:1px solid #3b514e; background:#19242a; border-radius:13px;
-  box-shadow:0 12px 36px #060c0fc9; transform-origin:top right;
+  overflow:auto; border:1px solid #3b514e; background:linear-gradient(160deg, #20312e, #182329 65%); border-radius:13px;
+  box-shadow:0 14px 36px #060c0fa6, inset 0 1px rgb(222 255 239 / 5%); transform-origin:top right;
 }
 .top .nav-popover a {justify-content:space-between; color:var(--ink); white-space:normal}
 .top .nav-popover a:hover, .top .nav-popover a:focus-visible {background:#273c35; color:var(--mint)}
@@ -57,16 +60,44 @@
     display:grid; padding-bottom:6px; margin-bottom:6px; gap:0; border-bottom:1px solid #34454c;
   }
 }
+/* Keep the summary, focus order and the native open state available without JavaScript. */
+.source-manager > summary, .capture-menu > summary {border-radius:8px; padding-inline:6px; margin-inline:-6px}
+:is(.source-manager, .capture-menu) > summary:focus-visible {outline-offset:0}
+@media (hover:hover) {
+  :is(.source-manager, .capture-menu) > summary:hover {background:#1c2c2d; color:var(--mint)}
+}
 @media(prefers-reduced-motion:no-preference) {
   @view-transition {navigation:auto}
-  ::view-transition-old(root), ::view-transition-new(root) {animation-duration:150ms}
-  #serviceMenu[open] > .nav-popover, .updates-dialog[open] {animation:nav-appear 150ms ease-out}
-  #serviceMenu > summary i {transition:transform 160ms ease}
-  .top .primary-nav a, #serviceMenu > summary, .button, .mini-button {
-    transition:background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+  ::view-transition-old(root) {animation-duration:110ms}
+  ::view-transition-new(root) {animation-duration:180ms}
+  #serviceMenu > summary i {transition:transform 180ms ease}
+  .top .primary-nav a, #serviceMenu > summary, .source-manager > summary,
+  #sessionView .button, #sessionView .mini-button, .button, .mini-button, .source-action {
+    transition:background-color 140ms ease, border-color 140ms ease, color 140ms ease, translate 100ms ease;
   }
+  :is(.button, .mini-button, .source-action, #serviceMenu > summary):not(:disabled, [aria-disabled=true]):active {translate:0 1px}
+  @supports selector(::details-content) {
+    #serviceMenu::details-content {
+      opacity:0; transform:translateY(-5px) scale(.985); transform-origin:top right;
+      transition:opacity 140ms ease, transform 160ms cubic-bezier(.2,.8,.2,1),
+        content-visibility 160ms allow-discrete;
+    }
+    #serviceMenu[open]::details-content {opacity:1; transform:none}
+    #serviceMenu:not([open]) .nav-popover {pointer-events:none}
+    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording) {
+      display:grid; grid-template-rows:auto 0fr;
+      transition:grid-template-rows 190ms cubic-bezier(.2,.8,.25,1);
+    }
+    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording)[open] {grid-template-rows:auto 1fr}
+    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording)::details-content {
+      display:block; min-block-size:0; overflow:clip; opacity:0;
+      transition:opacity 150ms ease, content-visibility 190ms allow-discrete;
+    }
+    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording)[open]::details-content {opacity:1}
+  }
+  .updates-dialog[open] {animation:nav-appear 160ms cubic-bezier(.2,.8,.2,1)}
   @keyframes nav-appear {
-    from {opacity:0; transform:translateY(-4px)}
-    to {opacity:1; transform:translateY(0)}
+    from {opacity:0; transform:translateY(5px) scale(.985)}
+    to {opacity:1; transform:none}
   }
 }

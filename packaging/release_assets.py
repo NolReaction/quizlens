@@ -12,7 +12,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from extension_package import EXTENSION_ARCHIVE, EXTENSION_FILES, extension_archive
+from extension_package import EXTENSION_ARCHIVE, EXTENSION_FILES, extension_archive, package_bytes
 
 ARCHIVES = {
     "QuizLens-Mac.zip": "QuizLens-Mac/QuizLens.app/Contents/Resources/quiz-lens/",
@@ -53,11 +53,11 @@ def assemble(directory, tag, repository, signing):
                 raise ValueError(f"Wrong repository in {name}")
             extension = root.split("/")[0] + "/browser-extension/"
             for filename in EXTENSION_FILES:
-                shipped = archive.read(extension + filename).replace(b"\r\n", b"\n")
-                source = (ROOT / "browser-extension" / filename).read_bytes().replace(b"\r\n", b"\n")
+                shipped = package_bytes(filename, archive.read(extension + filename))
+                source = package_bytes(filename, (ROOT / "browser-extension" / filename).read_bytes())
                 if shipped != source:
                     raise ValueError(f"Wrong extension file in {name}: {filename}")
-                if name == "QuizLens-Mac.zip" and archive.read(root + "browser-extension/" + filename).replace(b"\r\n", b"\n") != shipped:
+                if name == "QuizLens-Mac.zip" and package_bytes(filename, archive.read(root + "browser-extension/" + filename)) != shipped:
                     raise ValueError(f"The installed Mac application is missing the published extension: {filename}")
             # Windows checkout may have CRLF; compare UTF-8 text rather than newline conventions.
             packaged = archive.read(root.split("/")[0] + "/README.md").decode("utf-8").splitlines()

@@ -37,7 +37,14 @@ button { font: inherit; cursor: pointer; }
 .nav nav a:hover, .nav nav a[aria-current] { color: var(--text); background: var(--raised); }
 .nav nav a[aria-current] { color: var(--accent); }
 .nav-toggle { color: var(--text); background: var(--surface); border: 1px solid var(--line); gap: .65rem; }
-.menu-icon { width: .95em; height: .5em; border-block: 2px solid currentColor; }
+.menu-icon { position:relative; width:1em; height:1em; display:inline-block; }
+.menu-icon::before, .menu-icon::after {
+  content:""; position:absolute; inset-inline:0; top:50%; height:2px; margin-top:-1px;
+  background:currentColor; border-radius:2px; transform:translateY(-3px);
+}
+.menu-icon::after { transform:translateY(3px); }
+.nav-toggle[aria-expanded=true] .menu-icon::before { transform:rotate(45deg); }
+.nav-toggle[aria-expanded=true] .menu-icon::after { transform:rotate(-45deg); }
 .nav-toggle[aria-expanded=true] { border-color: var(--accent-line); color: var(--accent); }
 .brand { color: var(--text); font-size: 1.45rem; letter-spacing: -.06em; font-weight: 750; }
 .brand span:last-child { color: var(--accent); }
@@ -126,7 +133,9 @@ code { font-family: "IBM Plex Mono", Consolas, monospace; overflow-wrap: anywher
   .hero { gap: 1.25rem; }
   .nav { min-height: 3.85rem; flex-wrap: wrap; padding-block: .35rem; }
   .nav nav { width: 100%; flex-wrap: wrap; }
-  .nav-toggle:not([hidden]) + nav { position: absolute; top: calc(100% + .35rem); right: 0; width: min(18rem, 100%); display: grid; padding: .4rem; box-shadow: 0 1rem 2rem #060c10ab; }
+  .nav-toggle:not([hidden]) + nav { position: absolute; top: calc(100% + .35rem); right: 0; width: min(18rem, 100%); display:grid; padding:.4rem; max-height:calc(100dvh - 5rem); overflow:auto;
+    background:linear-gradient(155deg, #20312d, #172126 70%); transform-origin:top right;
+    box-shadow:0 1rem 2rem #060c10ab, inset 0 1px rgb(222 255 239 / 5%); }
   .release-row { grid-row: 2; }
 }
 @media (max-width: 560px) {
@@ -141,7 +150,12 @@ code { font-family: "IBM Plex Mono", Consolas, monospace; overflow-wrap: anywher
 @media (prefers-reduced-motion: no-preference) {
   :root { scroll-behavior: smooth; }
   .nav nav a, .button, .nav-toggle { transition: background-color .16s, color .16s, border-color .16s, transform .16s; }
-  .button:active { transform: translateY(1px); }
-  .preview, .nav-toggle:not([hidden]) + nav:not([hidden]) { animation: appear .24s ease-out; }
+  .nav-toggle:active, .button:active { transform: translateY(1px); }
+  .menu-icon::before, .menu-icon::after { transition:transform 160ms cubic-bezier(.2,.8,.2,1); }
+  @media (hover:hover) {
+    .button:hover { transform:translateY(-1px); }
+    .button:active { transform:translateY(1px); }
+  }
+  .preview { animation: appear .24s ease-out; }
   @keyframes appear { from { opacity: .45; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 }
