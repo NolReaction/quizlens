@@ -114,6 +114,10 @@ def run(url, temp, screenshots):
             expect(capture.locator("#answer .answer-title")).to_have_text("Recall", timeout=15000)
             expect_reader(capture, "question")
             expect_popup(harness, "question")
+            harness.wait_for_function("""async () => {
+                const [quiz] = await chrome.tabs.query({active:true, currentWindow:true});
+                return (await chrome.action.getBadgeText({tabId:quiz.id})) === '✓';
+            }""")
             title = harness.evaluate("""() => chrome.extension.getViews({type:'popup'})[0]
                 .document.querySelector('#sourceTitle').textContent""")
             assert quiz.title() in title, "The active source must be identifiable in the popup"
