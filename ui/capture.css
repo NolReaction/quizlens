@@ -69,6 +69,14 @@
 #sessionView .capture-links {margin-top:22px; flex-wrap:wrap; gap:10px 18px}
 #sessionView .capture-links a {display:inline-flex; align-items:center; min-height:40px}
 #sessionView.sharing .capture, #sessionView .capture:target {border-color:#4e7465}
+@media (min-width:721px) and (max-height:820px) {
+  #sessionView {padding-top:18px}
+  .capture-heading {margin-bottom:14px}
+  .prep-grid {margin-bottom:12px}
+  #sessionView .prep-step {padding-block:16px}
+  .step-actions {margin-top:10px}
+  .prep-step .step-intro, #windowStep .step-intro {margin-block:6px 10px}
+}
 @media (max-width:720px) {
   .prep-grid, #sessionView .workspace {grid-template-columns:1fr; gap:12px}
   .prep-grid {margin-bottom:12px}
