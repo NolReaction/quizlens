@@ -3,13 +3,13 @@
 const files = {mac: 'QuizLens-Mac.zip', windows: 'QuizLens-Windows.zip'};
 const labels = {mac: 'Mac', windows: 'Windows x64'};
 const deviceNotes = {
-  mac: 'Для этого Mac подойдёт сборка macOS. Требуется macOS 14 или новее.',
-  windows: 'Для этого ПК подойдёт сборка Windows x64.',
+  mac: 'Для твоего Mac подойдёт сборка macOS.',
+  windows: 'Для твоего ПК подойдёт сборка Windows x64.',
   windowsUnknown: 'Похоже, у тебя Windows. Для сборки нужен процессор x64. Тип системы указан в параметрах Windows в разделе «Система → О системе».',
   windowsOther: 'Для компьютеров с Windows ARM и 32-разрядных систем отдельной сборки пока нет. Ниже — архив для Windows x64.',
   mobile: 'QuizLens работает на компьютере. Скопируй ссылку, чтобы открыть её на Mac или ПК.',
-  linux: 'Готовой сборки для Linux пока нет. На GitHub доступны исходники.',
-  unknown: 'Выбери систему компьютера, на котором будешь проходить квиз.'
+  linux: 'Готовой сборки для Linux пока нет. Исходный код доступен на GitHub.',
+  unknown: 'Выбери систему своего компьютера.'
 };
 
 function detectDevice(info, hints = {}) {
@@ -45,7 +45,7 @@ function parseRelease(data, repoURL) {
   const notarized = body.includes('<!-- quizlens-macos: notarized -->');
   const unsigned = body.includes('<!-- quizlens-macos: unsigned -->');
   return {
-    tag, releaseURL, extension: download('QuizLens-Extension.zip'), guide: download('QuizLens-Guide.md'), checksums: download('SHA256SUMS.txt'),
+    tag, releaseURL, guide: download('QuizLens-Guide.md'), checksums: download('SHA256SUMS.txt'),
     mac: download(files.mac), windows: download(files.windows),
     macStatus: notarized === unsigned ? 'unknown' : notarized ? 'notarized' : 'unsigned'
   };
@@ -56,7 +56,6 @@ function enablePage(doc, browser, location, fetchRelease) {
   const repo = doc.body.dataset.repository;
   const repoURL = 'https://github.com/' + repo;
   let device = detectDevice(browser);
-  let release = null;
 
   function renderDevice() {
     get('device-note').textContent = deviceNotes[device];
@@ -66,21 +65,9 @@ function enablePage(doc, browser, location, fetchRelease) {
       card.classList.toggle('recommended', preferred);
       card.querySelector('.match').hidden = !preferred;
     }
-    const hero = get('hero-action');
-    if (device === 'mac' && release?.mac && release.macStatus !== 'notarized') {
-      hero.href = '#mac-card';
-      hero.textContent = 'Посмотреть сборку для Mac ↓';
-    } else if (release && release[device]) {
-      hero.href = release[device];
-      hero.textContent = 'Скачать для ' + labels[device] + ' ↓';
-    } else {
-      hero.href = '#download';
-      hero.textContent = 'Выбрать сборку ↓';
-    }
   }
 
   function renderRelease(result) {
-    release = result;
     for (const system of Object.keys(files)) {
       const button = get(system + '-download');
       const url = result && result[system];
@@ -96,9 +83,6 @@ function enablePage(doc, browser, location, fetchRelease) {
       get(system + '-info').textContent = url
         ? result.tag + ' · ' + files[system]
         : 'Архив для этой системы пока не опубликован.';
-    }
-    for (const id of ['extension-download', 'setup-extension-download']) {
-      get(id).href = result?.extension || './QuizLens-Extension.zip';
     }
     const signLabels = {
       notarized: 'Выпуск подписан Developer ID и прошёл нотарификацию Apple.',
@@ -164,9 +148,68 @@ function enablePage(doc, browser, location, fetchRelease) {
     renderRelease(parseRelease(await response.json(), repoURL));
   }).catch(() => {
     get('release-status').textContent = 'Сейчас не удалось проверить последний выпуск. Архивы можно посмотреть в списке выпусков GitHub.';
-    get('sign-info').textContent = 'Статус подписи можно уточнить в описании выпуска.';
+    get('sign-info').textContent = 'Сведения о подписи указаны в выпуске.';
   }).finally(() => clearTimeout(timer));
 }
 
-if (typeof document !== 'undefined') enablePage(document, navigator, window.location, window.fetch.bind(window));
-if (typeof module !== 'undefined') module.exports = {detectDevice, parseRelease, enablePage};
+function enableNavigation(doc, view) {
+  const button = doc.getElementById('nav-toggle');
+  const nav = doc.getElementById('site-nav');
+  const links = Array.from(nav.querySelectorAll('a'));
+  const sections = links.map(link => doc.getElementById(link.hash.slice(1)));
+  const compact = view.matchMedia('(max-width: 740px)');
+  function setOpen(open) {
+    button.hidden = !compact.matches;
+    button.setAttribute('aria-expanded', String(open && compact.matches));
+    nav.hidden = compact.matches && !open;
+  }
+  function closeOnEscape(event) {
+    if (event.key === 'Escape' && compact.matches && !nav.hidden) {
+      setOpen(false);
+      button.focus();
+    }
+  }
+  compact.addEventListener('change', () => setOpen(false));
+  button.addEventListener('click', () => setOpen(nav.hidden));
+  doc.addEventListener('keydown', closeOnEscape);
+  doc.addEventListener('click', event => {
+    if (!nav.contains(event.target) && !button.contains(event.target)) setOpen(false);
+  });
+  links.forEach((link, index) => link.addEventListener('click', () => {
+    if (compact.matches) {
+      setOpen(false);
+      sections[index].focus({preventScroll: true});
+    }
+  }));
+  function indicateSection() {
+    const top = doc.querySelector('.bar').offsetHeight + 24;
+    let active = 0;
+    sections.forEach((section, index) => {
+      if (section.getBoundingClientRect().top <= top) active = index;
+    });
+    if (Math.ceil(view.scrollY + view.innerHeight) >= doc.documentElement.scrollHeight) active = sections.length - 1;
+    links.forEach((link, index) => {
+      if (index === active) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    });
+  }
+  let scheduled = false;
+  function onScroll() {
+    if (scheduled) return;
+    scheduled = true;
+    view.requestAnimationFrame(() => {
+      scheduled = false;
+      indicateSection();
+    });
+  }
+  view.addEventListener('scroll', onScroll, {passive:true});
+  view.addEventListener('resize', onScroll);
+  setOpen(false);
+  indicateSection();
+}
+
+if (typeof document !== 'undefined') {
+  enableNavigation(document, window);
+  enablePage(document, navigator, window.location, window.fetch.bind(window));
+}
+if (typeof module !== 'undefined') module.exports = {detectDevice, parseRelease, enablePage, enableNavigation};
