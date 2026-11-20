@@ -198,6 +198,32 @@ test('old extension versions expose an update hint without blocking the existing
   assert.equal(app.elements['#tabReaderInstall'].hidden, true);
 });
 
+test('a browser using a previous bundled version exposes reload actions while continuing to read', () => {
+  const app = capturePage();
+  app.presence({version:'1.11.1', paired:true});
+  app.events['quizlens-extension-package']({detail:'1.11.2'});
+  assert.equal(app.state, 'paired');
+  const hint = app.elements['#tabReaderHint'];
+  assert.match(hint.textContent, /версию 1\.11\.1\. В комплекте 1\.11\.2.*↻/);
+  assert.equal(app.elements['#tabReaderInstall'].hidden, false);
+  assert.match(app.elements['#tabReaderHelp'].textContent, /обновление/);
+  app.emit({type:'started', version:'1.11.1'});
+  app.emit({type:'frame', frame:{texts:['Какой?', 'A', 'B'], selectionMode:'single'}});
+  assert.equal(app.state, 'question');
+  assert.match(hint.textContent, /версию 1\.11\.1/);
+  assert.deepEqual(app.calls, ['start',['Какой?', 'A', 'B', 'single']]);
+  app.presence({version:'1.11.2', paired:true, reading:true, reason:'question'});
+  assert.match(hint.textContent, /переданы в QuizLens/);
+  assert.equal(app.elements['#tabReaderInstall'].hidden, true);
+  app.presence({version:'1.11.10', paired:true});
+  assert.equal(app.elements['#tabReaderInstall'].hidden, true);
+
+  const before = capturePage();
+  before.events['quizlens-extension-package']({detail:'1.11.2'});
+  before.presence({version:'1.11.1', paired:true});
+  assert.match(before.elements['#tabReaderHint'].textContent, /версию 1\.11\.1\. В комплекте 1\.11\.2/);
+});
+
 test('reloaded capture shows a restoring state until it receives a new frame', () => {
   const app = capturePage();
   app.emit({type:'bound', version:'1.11.1', restored:true});

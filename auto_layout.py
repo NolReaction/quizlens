@@ -8,6 +8,75 @@ from ocr_layout import numbered_gutter_texts, percent_badge_splits
 from quiz_mode import checkbox_prefix, clean_options, instruction_only, selection_hint
 
 
+def colored_card_stack(image):
+    """Find a single, evenly spaced column of four solid answer cards."""
+    width, height = image.size
+    scale = min(1, 360 / width, 280 / height)
+    w, h = max(1, round(width * scale)), max(1, round(height * scale))
+    palette = image.resize((w, h), resample=0).convert('RGB').quantize(colors=24)
+    rgb = palette.getpalette()
+    colors = {}
+    lookup = bytearray(range(256))
+    for _, i in sorted(palette.getcolors(), reverse=True):
+        tone = rgb[3*i:3*i+3]
+        if max(tone)-min(tone) < 55:
+            continue
+        representative = next((j for j, other in colors.items() if
+                               max(abs(a-b) for a,b in zip(tone,other)) <= 30), None)
+        if representative is None:
+            colors[i] = tone
+        else:
+            lookup[i] = representative
+    pixels = palette.tobytes().translate(bytes(lookup))
+    bands = {i: [] for i in colors}
+    for y in range(h):
+        row = pixels[y*w:(y+1)*w]
+        for i in colors:
+            color = bytes((i,))
+            count = row.count(color)
+            if count < .14*w:
+                continue
+            left, right = row.find(color), row.rfind(color) + 1
+            if count < .85 * (right-left):
+                continue
+            spans = bands[i]
+            if not spans or y-spans[-1][-1][0] > max(4, .034*h) or abs(left-spans[-1][-1][1]) > .04*w:
+                spans.append([])
+            spans[-1].append((y, left, right))
+    cards = []
+    for color, bands_of_color in bands.items():
+        for rows in bands_of_color:
+            if len(rows) < .045*h:
+                continue
+            left = median(row[1] for row in rows)
+            right = median(row[2] for row in rows)
+            cards.append((left, rows[0][0], right, rows[-1][0]+1, color))
+    columns = []
+    for card in sorted(cards, key=lambda box: box[1]):
+        left, _, right, _, _ = card
+        peers = next((col for col in columns if abs(col[0][0]-left) <= .045*(right-left)
+                      and abs(col[0][2]-right) <= .045*(right-left)), None)
+        if peers is None:
+            columns.append([card])
+        else:
+            peers.append(card)
+    stacks = []
+    for column in columns:
+        if len(column) != 4 or len({card[4] for card in column}) < 3:
+            continue
+        heights = [b-t for _, t, _, b, _ in column]
+        size = median(heights)
+        gaps = [b[1]-a[3] for a,b in zip(column, column[1:])]
+        if min(heights) < .78*size or max(heights) > 1.24*size or min(gaps) <= 0 or max(gaps) > .46*size:
+            continue
+        # A tile whose expected height extends past the crop may be incomplete.
+        if column[-1][3] >= h-1 and heights[-1] < .93*size:
+            continue
+        stacks.append([tuple(round(value * (width/w if i % 2 == 0 else height/h))
+                            for i,value in enumerate(card[:4])) for card in column])
+    return stacks[0] if len(stacks) == 1 else []
+
+
 @dataclass(frozen=True)
 class Span:
     text: str

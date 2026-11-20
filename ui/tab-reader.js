@@ -8,7 +8,7 @@
   const stop = document.querySelector('#stopTabReader');
   const version = document.querySelector('#tabReaderVersion');
   const help = document.querySelector('#tabReaderHelp');
-  const minimumVersion = (document.querySelector('#tabReaderSetup')?.dataset.readingSwitchVersion || '').split('.').map(Number);
+  const minimumVersion = document.querySelector('#tabReaderSetup')?.dataset.readingSwitchVersion || '';
   if (!status || !hint || !install || !stop) return;
 
   const messages = {
@@ -32,19 +32,25 @@
   let title = '';
   let deadline = null;
   let timer = null;
-  let legacy = false;
+  let installedVersion = '';
+  let bundledVersion = '';
+
+  const versionText = value => typeof value === 'string' && /^\d{1,6}(?:\.\d{1,6}){1,3}$/.test(value) ? value : '';
+
+  function isOlder(actual, expected) {
+    if (!actual || !expected) return false;
+    const left = actual.split('.').map(Number);
+    const right = expected.split('.').map(Number);
+    for (let i = 0; i < Math.max(left.length, right.length); i++) {
+      const difference = (left[i] || 0) - (right[i] || 0);
+      if (difference) return difference < 0;
+    }
+    return false;
+  }
 
   function extensionVersion(reported) {
-    const current = typeof reported === 'string' && /^\d+(\.\d+){1,3}$/.test(reported) ? reported : '';
-    if (current) modern = true;
-    const actual = current.split('.').map(Number);
-    const difference = minimumVersion.map((part, index) => (actual[index] || 0) - part).find(Boolean) || 0;
-    legacy = !current || difference < 0;
-    if (!version) return;
-    version.hidden = false;
-    const text = (current ? 'Версия расширения ' + current + '.' : 'Версия расширения не определилась.') +
-      (legacy ? ' Чтобы появился переключатель, обнови расширение по инструкции.' : '');
-    if (version.textContent !== text) version.textContent = text;
+    installedVersion = versionText(reported);
+    if (installedVersion) modern = true;
   }
 
   function display(state) {
@@ -52,20 +58,29 @@
     const reading = ['restoring', 'waiting', 'partial', 'multiple', 'question'].includes(state);
     const text = reading && title ? 'Вкладка «' + title + '». ' + instruction : instruction;
     const needsSetup = ['checking', 'undetected', 'disconnected'].includes(state);
-    if (version && needsSetup) version.hidden = true;
+    const legacy = !installedVersion || isOlder(installedVersion, minimumVersion);
+    const upgrade = !needsSetup && isOlder(installedVersion, bundledVersion);
+    if (version) {
+      version.hidden = needsSetup;
+      const label = installedVersion ? 'Версия расширения ' + installedVersion + '.' : 'Версия расширения не определилась.';
+      if (version.textContent !== label) version.textContent = label;
+    }
     if (status.dataset.state !== state) {
       status.dataset.state = state;
       status.textContent = label;
     }
-    const guidance = state === 'paired' && legacy
+    let guidance = state === 'paired' && legacy
       ? 'Во вкладке квиза нажми «Читать вопросы». Чтобы появился переключатель, обнови расширение по инструкции.'
       : text;
+    if (upgrade) {
+      guidance = `Браузер сообщает версию ${installedVersion}. В комплекте ${bundledVersion}. Нажми ↻ на карточке QuizLens в разделе расширений браузера, затем обнови вкладки «Захват» и квиза.`;
+    }
     if (hint.textContent !== guidance) hint.textContent = guidance;
     if (help) {
-      const action = needsSetup || legacy ? 'Установка и обновление ↗' : 'Как пользоваться ↗';
+      const action = needsSetup || legacy || upgrade ? 'Установка и обновление ↗' : 'Как пользоваться ↗';
       if (help.textContent !== action) help.textContent = action;
     }
-    install.hidden = !needsSetup && !legacy;
+    install.hidden = !needsSetup && !legacy && !upgrade;
     stop.hidden = !reading;
   }
 
@@ -107,6 +122,11 @@
   function readingState(reason) {
     return ['partial', 'multiple', 'question'].includes(reason) ? reason : 'waiting';
   }
+
+  window.addEventListener('quizlens-extension-package', event => {
+    bundledVersion = versionText(event.detail);
+    display(status.dataset.state || 'checking');
+  });
 
   window.addEventListener('quizlens-extension', event => {
     if (typeof event.detail !== 'string' || event.detail.length > 48000) return;

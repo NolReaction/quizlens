@@ -6,6 +6,7 @@
   if (!button || !feedback) return;
   fetch('/api/health', {cache:'no-store'}).then(reply => reply.json()).then(info => {
     button.hidden = !['windows','macos'].includes(info.platform);
+    if (info.app === 'QuizLens') window.dispatchEvent(new CustomEvent('quizlens-extension-package', {detail:info.version}));
   }).catch(() => {});
   button.addEventListener('click', async () => {
     button.disabled = true;

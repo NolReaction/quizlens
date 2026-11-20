@@ -35,6 +35,7 @@ class Case:
     columns: int = 1
     dark: bool = False
     scale: float = 1.0
+    colored_cards: bool = False
 
 
 # Ground truth is known before drawing. Never send this text to the runtime.
@@ -46,11 +47,58 @@ CASES = (
     Case("grid", "Сколько минут длится один час?", ("45 минут", "90 минут", "60 минут", "30 минут"), columns=2),
     Case("reordered-grid", "Сколько минут длится один час?", ("60 минут", "30 минут", "45 минут", "90 минут"), columns=2),
     Case("units", "Какое измерение совпадает с одним метром?", ("10 см", "100 мм", "1,0 м", "0,1 м"), scale=.8),
+    Case("colored-cards", "Один из этих приборов измеряет\nтемпературу воздуха на улице\nв тени.",
+         ("Барометр", "Термометр", "Вольтметр", "Анемометр"), colored_cards=True),
 )
+
+
+def png_url(image):
+    png = io.BytesIO()
+    image.save(png, "PNG")
+    return "data:image/png;base64," + base64.b64encode(png.getvalue()).decode("ascii")
+
+
+def render_colored_cards(case, phase, font):
+    """Render a dark tab with widely separated answers of mixed text polarity."""
+    width, height = 1920, 1000
+    image = Image.new("RGB", (width, height), "#202a42")
+    draw = ImageDraw.Draw(image)
+    body = ImageFont.truetype(font, 19)
+    small = ImageFont.truetype(font, 16)
+    foreground = "#fcfafa"
+    left, top = 646 + 2 * phase, 244 + phase
+    center = left + 312
+    draw.text((left, 28), "Игрок", font=small, fill=foreground)
+    draw.text((left + 624, 28), "120 баллов", anchor="ra", font=small, fill="#a5b6d5")
+    draw.text((center, 91), "Вопрос 3 из 8", anchor="mm", font=small, fill="#a5b6d5")
+    draw.text((center, 127), "24 сек" if phase == 0 else "9 сек", anchor="mm", font=body, fill="#f1ad43")
+    draw.multiline_text((center, 158), case.question, anchor="ma", align="center", spacing=4,
+                        font=body, fill=foreground)
+    boxes = [(left, 151, 624, 79)]
+    colors = ("#cf2158", "#2755ba", "#f3a717", "#15745f")
+    for i, (option, color) in enumerate(zip(case.options, colors)):
+        y = top + i * 168
+        draw.rounded_rectangle((left, y, left + 624, y + 156), radius=14, fill=color)
+        x, mid = left + 27, y + 78
+        ink = "#131e31" if i == 2 else foreground
+        if i == 0:
+            draw.polygon([(x, mid - 8), (x - 8, mid + 7), (x + 8, mid + 7)], fill=ink)
+        elif i == 1:
+            draw.polygon([(x, mid - 8), (x - 8, mid), (x, mid + 8), (x + 8, mid)], fill=ink)
+        elif i == 2:
+            draw.ellipse((x - 6, mid - 6, x + 6, mid + 6), fill=ink)
+        else:
+            draw.rectangle((x - 7, mid - 7, x + 7, mid + 7), fill=ink)
+        draw.text((left + 47, mid), option, anchor="lm", font=body, fill=ink)
+        boxes.append((left + 43, mid - 18, 528, 36))
+    regions = [dict(x=x/width, y=y/height, w=w/width, h=h/height) for x, y, w, h in boxes]
+    return png_url(image), regions
 
 
 def render(case, phase, font):
     """Jitter the card by two pixels and move the timer without changing the answer text."""
+    if case.colored_cards:
+        return render_colored_cards(case, phase, font)
     image = Image.new("RGB", (1040, 570), "#18222b" if case.dark else "#fbfcfd")
     draw = ImageDraw.Draw(image)
     fg, muted = ("#f4f6fa", "#d1d9e0") if case.dark else ("#111820", "#40505c")
@@ -75,9 +123,7 @@ def render(case, phase, font):
     regions = [dict(x=x/1040, y=y/570, w=w/1040, h=h/570) for x, y, w, h in boxes]
     if case.scale != 1:
         image = image.resize((round(image.width * case.scale), round(image.height * case.scale)), Image.Resampling.LANCZOS)
-    png = io.BytesIO()
-    image.save(png, "PNG")
-    return "data:image/png;base64," + base64.b64encode(png.getvalue()).decode("ascii"), regions
+    return png_url(image), regions
 
 
 def plain_text(text):
@@ -180,6 +226,9 @@ def check_regressions(rows):
         for item in by_mode:
             if item["case"] in ("decimal", "signed", "operators") and item["unflaggedCriticalErrors"]:
                 raise ValueError(f"{mode}/{item['case']}: unchecked reading in fields {item['unflaggedCriticalErrors']}: {item['texts']}")
+    colored = [r for r in rows if r["mode"] == "auto" and r["case"] == "colored-cards"]
+    if len(colored) != 2 or not all(r["questionExact"] and r["optionsInOrder"] for r in colored):
+        raise ValueError(f"auto/colored-cards: question and all four choices must survive the timer change: {colored}")
 
 
 def main():

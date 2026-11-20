@@ -142,5 +142,10 @@ def check_dom_extraction(page):
         load_fixture(button_quiz_html(marked=True))
         frame = read()
         assert frame == {"texts": [BUTTON_TASK, *BUTTON_OPTIONS], "selectionMode": "single"}, frame
+        title = page.locator("[data-q=text]")
+        title.evaluate("node => {node.textContent = 'Выберите 1 вариант'}")
+        assert read()["selectionMode"] == "single"
+        title.evaluate("node => {node.textContent = 'Выберите 2 варианта'}")
+        assert read()["selectionMode"] == "multiple"
     finally:
         page.close()

@@ -20,10 +20,12 @@ import sys
 import tempfile
 import threading
 import time
+from statistics import median
 
-from auto_layout import assess_layout
+from auto_layout import assess_layout, colored_card_stack
 from ocr_layout import ocr_texts
 from ocr_review import field_warnings
+from quiz_mode import selection_hint
 
 _ROOT = Path(__file__).resolve().parent
 _MAX_BYTES = 8 * 1024 * 1024
@@ -397,7 +399,8 @@ def _read_tsv(pages, binary, languages, mode, timeout):
     buffer = io.BytesIO()
     pages[0].save(buffer, format="TIFF", save_all=True, append_images=pages[1:], compression="tiff_lzw")
     try:
-        result = subprocess.run([binary, "stdin", "stdout", "--psm", mode, "-l", languages, "tsv"],
+        # Installed language packs can live in a directory without the configs/tsv preset.
+        result = subprocess.run([binary, "stdin", "stdout", "--psm", mode, "-l", languages, "-c", "tessedit_create_tsv=1"],
                                 input=buffer.getvalue(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 env=dict(os.environ, OMP_THREAD_LIMIT="1"), timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -513,6 +516,115 @@ def _verify_lecture_words(pages, groups, binary, vocabulary):
             part["text"] = match[1] + read[1] + ("" if check_ending else match[3])
 
 
+def _ink(image):
+    """Contrast against the local fill regardless of dark or light text."""
+    pixels = image.convert('L')
+    background = max(enumerate(pixels.histogram()), key=lambda pair: pair[1])[0]
+    return pixels.point([min(255, max(0, abs(value-background)-21)*4) for value in range(256)])
+
+
+def _ink_runs(ink, vertical=False):
+    width, height = ink.size
+    runs = []
+    for i in range(width if vertical else height):
+        strip = (i, 0, i+1, height) if vertical else (0, i, width, i+1)
+        if ink.crop(strip).getbbox() is not None:
+            if runs and runs[-1][1] == i:
+                runs[-1] = (runs[-1][0], i+1)
+            else:
+                runs.append((i, i+1))
+    return runs
+
+
+def _colored_card_pages(image, cards, image_ops):
+    left, top, right, bottom = cards[0]
+    card_height = bottom - top
+    if top < 6:
+        return None
+    padding = max(2, round(.005*(right-left)))
+    left, right = max(0, left-padding), min(image.width, right+padding)
+    top_limit = max(0, top-round(1.12*card_height))
+    stem = _ink(image.crop((left, top_limit, right, top-2)))
+    lines = []
+    for start, end in _ink_runs(stem):
+        bbox = stem.crop((0, start, stem.width, end)).getbbox()
+        if end-start >= max(3, .024*card_height) and bbox[2]-bbox[0] >= .07*stem.width:
+            lines.append((start, end))
+    if not lines or stem.height-lines[-1][1] > .27*card_height:
+        return None
+    start, end = lines[-1]
+    line_height = end-start
+    for previous, last in reversed(lines[:-1]):
+        if start-last > max(line_height, last-previous):
+            break
+        start = previous
+    stem = stem.crop((0, start, stem.width, end))
+    stem_box = (left, top_limit+start, right, top_limit+end)
+    tiles, gutters = [], []
+    for x, y, r, b in cards:
+        inset = max(2, round(.18*(b-y)))
+        side = max(2, round(.014*(r-x)))
+        option = _ink(image.crop((x+side, y+inset, r-side, b-inset)))
+        bbox = option.getbbox()
+        if bbox is None:
+            return None
+        # The left geometry badge is a compact, isolated shape on every row.
+        starts = _ink_runs(option, vertical=True)
+        gutter = 0
+        if len(starts) > 1:
+            first, second = starts[:2]
+            _, first_top, _, first_bottom = option.crop((first[0], 0, first[1], option.height)).getbbox()
+            size = first_bottom-first_top
+            if (first[0] <= .12*option.width and .65*size <= first[1]-first[0] <= 1.5*size
+                    and second[0]-first[1] >= max(3, .29*size)):
+                gutter = second[0]
+        gutters.append(gutter)
+        tiles.append(option)
+    if all(gutters) and max(gutters)-min(gutters) <= max(3, .018*tiles[0].width):
+        tiles = [tile.crop((gutter, 0, tile.width, tile.height)) for tile,gutter in zip(tiles,gutters)]
+
+    pages = []
+    for ink in (stem, *tiles):
+        cropped = ink.crop(ink.getbbox())
+        scale = min(4, max(1, 28/line_height))
+        enlarged = cropped.resize((round(cropped.width*scale), round(cropped.height*scale)), resample=3)
+        pages.append(image_ops.expand(image_ops.invert(enlarged), border=10, fill=255))
+    return pages, [stem_box, *cards]
+
+
+def _read_colored_cards(image, cards, binary, languages):
+    from PIL import ImageOps
+
+    prepared = _colored_card_pages(image, cards, ImageOps)
+    if prepared is None:
+        return None
+    pages, boxes = prepared
+    try:
+        groups = _read_tsv(pages, binary, languages, "11", timeout=5)
+    except RuntimeError:
+        return None
+    texts = ocr_texts(groups)
+    question = texts[0]
+    metadata = re.match(r"^(?:игрок|раунд\s*\d|вопрос\s*\d|озвучка|player|round\s*\d|question\s*\d)\b", question, re.I)
+    if metadata or (len(question.split()) < 3 and '?' not in question) or not all(texts) or len({s.casefold() for s in texts[1:]}) != 4:
+        return None
+    if not all(group and median(part['confidence'] for part in group) >= 65 for group in groups):
+        return None
+    width, height = image.size
+    regions = [dict(x=x/width, y=y/height, w=(r-x)/width, h=(b-y)/height) for x,y,r,b in boxes]
+    result = {'regions': regions, 'texts': texts, **selection_hint(texts[0], texts[1:], [])}
+    warnings = field_warnings(pages, pages, groups, texts, None,
+                              lambda crops: _read_tsv(crops, binary, languages, "7", timeout=1.4))
+    if warnings:
+        result['readingWarnings'] = warnings
+    return result
+
+
+def _unreadable_color_stack():
+    return {'regions': [], 'texts': [], 'captureStatus': 'partial',
+            'hint': 'Нашёл цветные карточки, но не смог прочитать весь текст. Увеличь текст в окне квиза и покажи все варианты.'}
+
+
 def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
     try:
         from PIL import Image
@@ -523,12 +635,20 @@ def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
     binary, languages = _tesseract_config()
     pages = []
     originals = []
+    color_stack_found = False
     try:
         with Image.open(io.BytesIO(raw_image)) as image:
             width, height = image.size
             if max(image.size) > 8192 or width * height > 24_000_000:
                 raise ValueError("Размер кадра превышает ограничение OCR.")
             if regions is None:
+                if review:
+                    cards = colored_card_stack(image)
+                    color_stack_found = bool(cards)
+                    if color_stack_found:
+                        color_result = _read_colored_cards(image, cards, binary, languages)
+                        if color_result is not None:
+                            return color_result
                 # Small browser fonts and digits next to '%' otherwise drop out
                 # of sparse OCR. Bound both size and total CPU work per frame.
                 scale = min(1.5, 2000 / max(image.size), math.sqrt(2_500_000 / (width * height)))
@@ -549,7 +669,12 @@ def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
         raise ValueError("Не удалось прочитать изображение.") from exc
     if regions is not None and review:
         originals = pages
-    groups = _read_tsv(pages, binary, languages, "11" if regions is None else "6", timeout=15)
+    try:
+        groups = _read_tsv(pages, binary, languages, "11" if regions is None else "6", timeout=15)
+    except RuntimeError:
+        if color_stack_found:
+            return _unreadable_color_stack()
+        raise
     if regions is None and len(groups[0]) > 900:
         return {"regions": [], "texts": []} if review else ([], width / height)
     if vocabulary and "eng" in languages:
@@ -565,6 +690,8 @@ def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
         if not review:
             return parts, width / height
         result = assess_layout(parts, aspect=width / height)
+        if color_stack_found and not result['regions']:
+            return _unreadable_color_stack()
     else:
         texts = ocr_texts(groups)
         if not review:

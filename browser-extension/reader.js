@@ -10,7 +10,7 @@
   const buttonCommands = '[aria-haspopup],[aria-expanded],[type=submit],[type=reset]';
   const marker = /^[▲△▼▽◆◇◈❖⬥●○◉■□★☆]\s*/u;
   const questionCue = /[?？][»”"')\]]*$|^(?:выбер(?:и|ите)|укаж(?:и|ите)|отметь(?:те)?|назов(?:и|ите)|закончи(?:те)?|продолжи(?:те)?|определ(?:и|ите)|найд(?:и|ите)|choose|select|complete|pick|identify|find)(?=\s)/iu;
-  const multipleCue = /\b(?:choose|select|pick|mark)\s+(?:all|at least|more than one|two|three|\d+)\b|(?:выбер(?:и|ите)|отметь(?:те)?|укаж(?:и|ите))\s+(?:все|несколько|как минимум|два|две|три|четыре|\d+)(?=\s)/iu;
+  const multipleCue = /(?:^|[?!:]\s*)(?:(?:choose|select|pick|mark)\s+(?:all|at least|more than one|two|three|four|five|six|seven|eight|[2-8])|(?:выбер(?:и|ите)|отметь(?:те)?|укаж(?:и|ите))\s+(?:все|несколько|как минимум|два|две|три|четыре|пять|шесть|семь|восемь|[2-8]))(?=\s|[.,!?]|$)/iu;
   const compact = value => value.replace(/\s+/g,' ').trim();
 
   function painted(el) {
