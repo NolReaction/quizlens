@@ -169,6 +169,7 @@ def check_general_answers(browser, url, calls, directory):
         expect(reviewed).to_have_text("1 из 2")
         expect(pending).to_have_text("0")
 
+        page.evaluate("window.quizLensTabCapture.stop()")
         page.locator("#captureOptions").click()
         page.locator("#record").uncheck()
         private_result = wait_for_answer(lambda: read_question("Что помогает ориентироваться на местности?", OPTIONS))
