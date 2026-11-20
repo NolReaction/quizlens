@@ -91,6 +91,7 @@ class SemanticStore:
         with closing(sqlite3.connect(self.path)) as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("CREATE TABLE IF NOT EXISTS embedding (model TEXT NOT NULL, digest TEXT NOT NULL, vector BLOB NOT NULL, PRIMARY KEY(model, digest))")
+            db.execute("CREATE INDEX IF NOT EXISTS embedding_digest ON embedding(digest)")
             db.commit()
 
     def _load(self, keys, model, *, with_vectors=False):
@@ -117,6 +118,16 @@ class SemanticStore:
         prepared = sum(key in known for key in keys)
         return dict(model=model, total=len(keys), prepared=prepared, missing=len(keys)-prepared,
                     ready=bool(keys) and prepared == len(keys))
+
+    def forget_passages(self, texts):
+        if not texts:
+            return
+        with self._preparing, closing(sqlite3.connect(self.path)) as db:
+            with db:
+                db.executemany("DELETE FROM embedding WHERE digest = ?", ((_key(text),) for text in texts))
+            with self._state:
+                self._revision += 1
+                self._by_index.clear()
 
     def prepare(self, index_or_sections, model):
         model = _check_model(model)

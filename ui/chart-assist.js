@@ -34,11 +34,8 @@ window.QuizChart = (() => {
       prompt.hidden = !type;
       prompt.textContent = type === 'table' ? 'Проверь заголовки строк и столбцов на кадре.'
         : type === 'chart' ? 'Для разбора должны быть видны оси, их единицы и легенда.' : '';
-      button.textContent = type === 'table' ? 'Открыть таблицу с вопросом ↗'
-        : type === 'chart' ? 'Открыть рисунок с вопросом ↗' : 'Разобрать график или таблицу ↗';
-      button.classList.toggle('button', Boolean(type));
-      button.classList.toggle('primary', Boolean(type));
-      button.classList.toggle('subtle', !type);
+      button.hidden = !type;
+      if (type) button.textContent = type === 'table' ? 'Открыть таблицу с вопросом ↗' : 'Открыть рисунок с вопросом ↗';
     }
     if (!question) last = null;
     return type;

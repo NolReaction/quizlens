@@ -1,11 +1,16 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>QuizLens · Захват квиза</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/capture.css">
+  <link rel="stylesheet" href="/sources.css">
+  <link rel="stylesheet" href="/navigation.css">
+  <script src="/navigation.js" defer></script>
+  <script src="/sources.js" defer></script>
   <script src="/demo-window.js" defer></script>
   <script src="/visual-transfer.js" defer></script>
   <script src="/chart-assist.js" defer></script>
@@ -19,112 +24,123 @@
   <script src="/extension-folder.js" defer></script>
   <script src="/app-update.js" defer></script>
 </head>
-<body data-update-busy='#sessionView.sharing,#stopTabReader:not([hidden]),#share:disabled,#addLecture:disabled,#calibration[open],#ocrComponent[data-status="installing"]'>
+<body data-update-busy='#sessionView.sharing,#stopTabReader:not([hidden]),#share:disabled,#addLecture:disabled,#sourceDialog[open],#calibration[open],#ocrComponent[data-status="installing"]'>
 <header class="top"><div class="bar">
   <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
   <nav class="primary-nav" aria-label="Основные разделы">
-    <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/setup#connection" id="navSetup">LM Studio</a><a href="/journal">Журнал</a>
+    <div class="nav-sections">
+      <a href="/" aria-current="page">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+    </div>
   </nav>
 </div></header>
 <main id="sessionView">
   <header class="capture-heading">
-    <div><h1>Захват квиза</h1><p>Подготовь источники ответов, затем подключи окно с вопросами.</p></div>
-    <div class="heading-actions"><a class="jump-link" id="windowJump" href="#windowStep">К окну квиза ↓</a>
-      <a class="jump-link update-jump" href="#appUpdates">Обновления <span id="updateBadge" hidden></span>↓</a></div>
+    <h1>Захват квиза</h1>
+    <a class="jump-link" id="windowJump" href="#windowStep">К выбору окна ↓</a>
   </header>
   <div id="notice" class="notice" role="status" hidden></div>
   <div class="prep-grid">
     <section class="panel prep-step" id="modelStep" aria-labelledby="modelTitle">
       <div class="step-heading"><span class="step-number" aria-hidden="true">1</span><h2 id="modelTitle">Подключи локальную модель</h2></div>
-      <p class="step-intro">Модель получает вопрос и выдержки из документов. Ответ готовится на твоём компьютере.</p>
+      <p class="step-intro">LM Studio запускает модель на твоём компьютере. Выбери её для ответов по документам.</p>
       <label class="control-label" for="model">Модель для ответа</label>
       <div class="model-picker"><select id="model" aria-describedby="modelInfo"><option value="">Карточки и поиск (без модели)</option></select>
         <button class="mini-button" type="button" id="refresh" aria-label="Обновить список моделей">Обновить</button></div>
       <p class="hint model-info" id="modelInfo" role="status">Проверяю связь с локальным сервером…</p>
-      <div class="step-actions"><a class="button" href="/setup#connection" id="modelAdvisor">Настроить LM Studio</a>
-        <a class="button" href="https://lmstudio.ai/download" target="_blank" rel="noopener noreferrer">Скачать LM Studio ↗</a></div>
+      <div class="step-actions"><a class="button" href="/setup#connection" id="modelAdvisor" rel="noopener">Настроить LM Studio</a></div>
     </section>
     <section class="panel prep-step" id="materials" aria-labelledby="lectureHeading">
       <div class="step-heading"><span class="step-number" aria-hidden="true">2</span><h2 id="lectureHeading">Добавь документы</h2></div>
-      <p class="step-intro">Загрузи конспект, слайды или другой материал. QuizLens ищет ответ только в отмеченных файлах.</p>
+      <p class="step-intro">Выбери конспект или слайды, по которым QuizLens будет искать ответы. Для пробного квиза уже добавлены примеры.</p>
       <div class="upload-row"><button type="button" class="button" id="addLecture">Добавить документ</button>
-        <small>PDF, PPTX, IPYNB, TXT, MD или JSON</small></div>
+        <small>До 32 МиБ на файл</small></div>
       <input type="file" id="files" accept=".pdf,.pptx,.ipynb,.txt,.md,.json" multiple hidden>
       <p class="hint file-feedback" id="fileInfo" role="status"></p>
-      <div class="document-heading"><h3 id="sourceTitle">Источники ответов</h3><span id="materialSummary"></span></div>
-      <div id="lectureList" class="lecture-list" role="group" aria-labelledby="sourceTitle"></div>
+      <details class="source-manager" id="sourceManager">
+        <summary><span id="sourceTitle">Управлять источниками</span><span id="materialSummary"></span></summary>
+        <div id="lectureList" class="source-list" role="group" aria-labelledby="sourceTitle"></div>
+        <p class="source-help">Подойдут PDF, PPTX, IPYNB, TXT, MD и банки вопросов .quiz.json. В Windows для PDF нужен текстовый слой. Ограничения по количеству файлов нет.</p>
+      </details>
     </section>
   </div>
   <div class="workspace">
     <section class="panel capture" id="windowStep" aria-labelledby="previewTitle" tabindex="-1">
       <div class="section-head"><div class="step-heading"><span class="step-number" aria-hidden="true">3</span><h2 id="previewTitle">Выбери окно квиза</h2></div>
         <div class="session-status" id="sessionStatus" role="status"><i class="dot"></i><span>Ожидание</span></div></div>
-      <p class="step-intro">Укажи вкладку или окно с квизом. QuizLens начнёт читать, когда появятся вопрос и варианты.</p>
+      <p class="step-intro">Подключи окно заранее. Чтение начнётся, когда появятся вопрос и варианты.</p>
       <div class="session-actions">
         <button type="button" class="button primary" id="share">Выбрать окно</button>
         <button type="button" class="button run" id="run" hidden>Начать чтение</button>
         <a class="button trial-button" data-demo-window href="/demo?lobby=1" target="quizlens-demo">Открыть пробный квиз ↗</a>
         <button type="button" class="button text-button" id="release" hidden>Отключить</button>
       </div>
-      <div class="capture-install">
-        <div class="component-intro"><h3>Расширение для Chrome и Edge</h3><p>Читает вопрос и варианты прямо со страницы. Таймер и размер шрифта не мешают чтению.</p></div>
-        <div class="component-actions"><button type="button" class="button" data-extension-folder hidden>Показать папку расширения</button><a class="button" id="extensionDownload" href="/download/QuizLens-Extension.zip" download>Скачать расширение</a>
-          <a class="text-link" href="/tab-reader-help.html" target="_blank" rel="noopener">Как установить ↗</a></div><p class="hint folder-result" data-extension-status role="status" hidden></p>
-      </div>
       <p class="hint" id="tabReaderStatus" role="status"></p>
       <button type="button" class="button" id="stopTabReader" hidden>Остановить чтение вкладки</button>
       <div id="stage" class="stage">
-        <div class="empty" id="emptyStage"><span class="window-icon" aria-hidden="true"><i></i></span><strong>Предпросмотр выбранного окна</strong></div>
+        <div class="empty" id="emptyStage"><span class="window-icon" aria-hidden="true"><i></i></span><strong>Предпросмотр окна</strong></div>
         <div class="video-box" id="videoBox" hidden><video id="preview" muted playsinline autoplay></video><div class="areas" id="liveAreas" aria-hidden="true"></div></div>
       </div>
       <a href="/native" class="subtle" id="nativeLink" hidden>Захват окна средствами macOS →</a>
       <p class="hint" id="captureHint" hidden></p>
       <p class="capture-feedback" id="runHint" hidden></p>
-      <section class="capture-settings" id="captureSettings" aria-labelledby="captureOptions">
-        <div class="ocr-component" id="ocrComponent">
-          <h3>Распознавание текста с экрана</h3>
-          <p class="hint" id="ocrComponentStatus" role="status">Проверяю распознавание на устройстве…</p>
-          <div class="component-actions"><button class="button" type="button" id="ocrInstall" hidden>Установить OCR</button><a class="text-link" href="/check">Проверить модель и OCR →</a></div>
+      <div class="ocr-component" id="ocrComponent" tabindex="-1" hidden>
+        <h3>Распознавание с экрана</h3>
+        <p class="hint" id="ocrComponentStatus" role="status">Проверяю распознавание на устройстве…</p>
+        <button class="button" type="button" id="ocrInstall" hidden>Установить OCR</button>
+      </div>
+      <details class="capture-menu" id="tabReaderSetup">
+        <summary>Читать через расширение <span>Chrome и Edge</span></summary>
+        <div class="menu-content">
+          <p>Расширение уже в комплекте QuizLens. Оно читает текст со страницы квиза без распознавания картинки.</p>
+          <div class="component-actions"><button type="button" class="button" data-extension-folder hidden>Показать папку расширения</button>
+            <a class="button" href="/tab-reader-help.html" target="_blank" rel="noopener">Как подключить ↗</a></div>
+          <p class="hint folder-result" data-extension-status role="status" hidden></p>
         </div>
-        <h3 id="captureOptions">Параметры чтения</h3>
-        <label class="config-label" for="selectionMode">Сколько вариантов можно отметить?</label>
-        <select id="selectionMode">
-          <option value="auto" selected>Авто · по указанию в вопросе</option>
-          <option value="single">Один вариант</option>
-          <option value="multiple">Несколько вариантов</option>
-        </select>
-        <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом компьютере</label>
-        <div class="capture-controls">
-          <button type="button" class="button" id="autoLayout" hidden>Вернуть авторазметку</button>
-          <button type="button" class="button" id="calibrate" disabled>Разметить области вручную</button>
-          <button type="button" class="button" id="reuse" hidden>Прошлая разметка</button>
+      </details>
+      <details class="capture-menu" id="captureSettings">
+        <summary id="captureOptions">Параметры чтения</summary>
+        <div class="menu-content">
+          <label class="config-label" for="selectionMode">Сколько вариантов можно отметить?</label>
+          <select id="selectionMode">
+            <option value="auto" selected>Авто · по указанию в вопросе</option>
+            <option value="single">Один вариант</option>
+            <option value="multiple">Несколько вариантов</option>
+          </select>
+          <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом компьютере</label>
+          <div class="capture-controls">
+            <button type="button" class="button" id="autoLayout" hidden>Вернуть авторазметку</button>
+            <button type="button" class="button" id="calibrate" hidden disabled>Разметить области вручную</button>
+            <button type="button" class="button" id="reuse" hidden>Прошлая разметка</button>
+          </div>
         </div>
-      </section>
+      </details>
     </section>
     <div class="aside">
       <section class="panel result" aria-labelledby="resTitle">
         <div class="section-head"><h2 id="resTitle">Ответ</h2><button class="mini-button" type="button" id="compact" title="Открыть отдельное окно с ответом">Поверх окон ↗</button></div>
         <div id="answer" class="answer-body" aria-live="polite" aria-atomic="true"></div>
-        <div class="readout"><h3 id="readHeading">Текст вопроса и вариантов</h3><div id="readText" class="read-text">Ожидание первого вопроса.</div></div>
-        <div class="result-tools"><p id="visualPrompt" class="hint" hidden></p><a href="/visual" id="visual" class="subtle" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
+        <div class="readout" id="readingTranscript" hidden><h3 id="readHeading">Текст вопроса и вариантов</h3><div id="readText" class="read-text"></div></div>
+        <div class="result-tools"><p id="visualPrompt" class="hint" hidden></p><a href="/visual" id="visual" class="button primary" target="_blank" rel="noopener" hidden>Открыть изображение вопроса ↗</a></div>
       </section>
-      <a class="text-link" id="studyCardsLink" href="/train#cards">Открыть учебные карточки →</a>
     </div>
   </div>
-  <section class="panel app-updates" id="appUpdates" aria-labelledby="updatesTitle">
-    <div class="component-intro"><h2 id="updatesTitle">Обновления QuizLens <span class="installed-version" id="installedVersion"></span></h2>
-      <p id="updateMessage" role="status">Проверяю установленную версию…</p></div>
+
+</main>
+<dialog id="appUpdates" class="updates-dialog" aria-labelledby="updatesTitle">
+  <div class="updates-body">
+    <div class="updates-head">
+      <h2 id="updatesTitle">Обновления QuizLens</h2>
+      <form method="dialog"><button type="submit" class="dialog-close" aria-label="Закрыть обновления" autofocus>×</button></form>
+    </div>
+    <p class="update-version">Установленная версия <strong id="installedVersion">…</strong></p>
+    <p id="updateMessage" role="status">Проверяю установленную версию…</p>
+    <label class="record-label" id="automaticLabel" hidden><input type="checkbox" id="automaticUpdates"> Обновлять автоматически между занятиями</label>
     <div class="update-controls">
-      <label class="record-label" id="automaticLabel" hidden><input type="checkbox" id="automaticUpdates"> Обновлять автоматически между занятиями</label>
-      <button class="button" id="updateAction" type="button" disabled>Проверить обновления</button>
+      <button class="button primary" id="updateAction" type="button" disabled>Проверить обновления</button>
       <a class="button" id="manualRelease" href="https://github.com/NolReaction/quizlens/releases/latest" target="_blank" rel="noopener noreferrer" hidden>Скачать сборку ↗</a>
     </div>
-  </section>
-  <footer id="releaseLinks" class="capture-links" hidden>
-    <a class="subtle" id="releaseDownload" target="_blank" rel="noopener noreferrer">Скачать QuizLens ↗</a>
-    <a class="subtle" id="releaseGuide" target="_blank" rel="noopener noreferrer">Инструкция ↗</a>
-  </footer>
-</main>
+  </div>
+</dialog>
 <dialog id="calibration" aria-labelledby="dialogTitle">
   <div class="dialog-body">
     <div class="section-head"><h2 id="dialogTitle">Разметка окна</h2><button class="mini-button" type="button" id="closeDialog">Закрыть</button></div>

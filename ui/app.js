@@ -115,7 +115,9 @@ function answer(info) {
 function showTexts(texts) {
   const box = el('readText');
   box.replaceChildren();
-  if (!texts) { box.textContent = 'Ожидание первого вопроса.'; return; }
+  const hasText = texts?.some(Boolean);
+  el('readingTranscript').hidden = !hasText;
+  if (!hasText) return;
   addText(box, '', texts[0] || 'Вопрос пока не прочитан.');
   const list = document.createElement('ol');
   texts.slice(1).forEach(text => {
@@ -131,10 +133,7 @@ function controls() {
   const auto = state.layoutMode === 'auto';
   el('stage').hidden = state.tabReading;
   const ready = sharing && (auto || validFields(state.regions.length)) && state.selected.size > 0;
-  for (const link of [el('modelAdvisor'), el('navSetup'), el('studyCardsLink')]) {
-    link.target = (sharing || state.tabReading) ? '_blank' : '_self';
-    link.rel = 'noopener';
-  }
+  el('modelAdvisor').target = (sharing || state.tabReading) ? '_blank' : '_self';
   el('sessionView').classList.toggle('sharing', sharing);
   el('run').hidden = !sharing;
   el('runHint').hidden = !sharing;
@@ -146,6 +145,7 @@ function controls() {
   el('release').hidden = !sharing;
   el('autoLayout').hidden = !sharing || (auto && !state.autoFocus);
   el('autoLayout').textContent = auto ? 'Искать во всём окне' : 'Вернуть авторазметку';
+  el('calibrate').hidden = !sharing;
   el('calibrate').disabled = !sharing;
   const active = state.running || state.autoArmed;
   el('run').disabled = !ready && !active;
@@ -194,43 +194,43 @@ function applySettingsChange() {
   controls();
 }
 
+let lectureListVersion = 0;
+
 function renderLectures() {
-  const list = el('lectureList');
-  list.replaceChildren();
-  if (!state.lectures.length) addText(list, 'hint', 'Добавь документ, чтобы искать в нём ответы.');
-  const groups = [
-    ['Твои документы', state.lectures.filter(item => !item.builtIn)],
-    ['Примеры для пробного квиза', state.lectures.filter(item => item.builtIn)]
-  ];
-  for (const [title, items] of groups) {
-    if (!items.length) continue;
-    addText(list, 'document-group', title);
-    for (const item of items) {
-      const label = document.createElement('label');
-      label.className = 'lecture-item';
-      const check = document.createElement('input');
-      check.type = 'checkbox';
-      check.checked = state.selected.has(item.id);
-      check.addEventListener('change', () => {
-        if (check.checked) state.selected.add(item.id); else state.selected.delete(item.id);
-        remember('selected', [...state.selected]);
-        applySettingsChange();
-      });
-      const name = document.createElement('span');
-      name.textContent = item.name;
-      label.append(check, name);
-      list.append(label);
+  window.QuizSources.render(el('lectureList'), {
+    lectures: state.lectures,
+    selected: state.selected,
+    onToggle(id, checked) {
+      if (checked) state.selected.add(id); else state.selected.delete(id);
+      remember('selected', [...state.selected]);
+      applySettingsChange();
+    },
+    onDelete(id) {
+      ++lectureListVersion;
+      const wasSelected = state.selected.delete(id);
+      state.lectures = state.lectures.filter(item => item.id !== id);
+      remember('selected', [...state.selected]);
+      answerCache.clear();
+      renderLectures();
+      if (wasSelected) applySettingsChange();
+      el('fileInfo').textContent = 'Документ удалён из QuizLens.';
     }
-  }
+  });
   controls();
 }
 async function loadLectures() {
+  const version = ++lectureListVersion;
   const data = await api('/api/lectures');
+  if (version !== lectureListVersion) return;
+  const previous = state.selected;
   state.lectures = data.lectures;
   const initial = settings().selected;
   state.selected = new Set(state.lectures.map(l=>l.id).filter(id=>!Array.isArray(initial)||initial.includes(id)));
   renderLectures();
-  if((state.autoArmed || state.tabReading) && !state.running && state.selected.size) start();
+  if (previous.size !== state.selected.size || [...previous].some(id => !state.selected.has(id))) {
+    answerCache.clear();
+    applySettingsChange();
+  }
 }
 el('addLecture').addEventListener('click', () => el('files').click());
 el('files').addEventListener('change', async event => {
@@ -244,15 +244,19 @@ el('files').addEventListener('change', async event => {
     for(const file of files) {
       el('fileInfo').textContent = 'Добавляю '+file.name+'…';
       try {
+        if (file.size > 32 * 1024 * 1024) throw new Error('Максимальный размер файла — 32 МиБ.');
         const data=await api('/api/import?name='+encodeURIComponent(file.name),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
+        ++lectureListVersion;
         state.lectures=state.lectures.filter(lecture=>lecture.id!==data.lecture.id);
         state.lectures.push(data.lecture);
         state.selected.add(data.lecture.id);
         complete++;
+        el('sourceManager').open = true;
         remember('selected',[...state.selected]); renderLectures();
         if(state.autoArmed || state.tabReading) applySettingsChange();
       } catch(error) { fileErrors.push(file.name+' — '+error.message); }
     }
+    if (complete) window.QuizSources.changed();
     el('fileInfo').textContent = 'Добавлено файлов — '+complete+'. '+fileErrors.join(' ');
   } finally { event.target.value=''; el('addLecture').disabled=false; }
 });
@@ -620,11 +624,11 @@ function start() {
   if(auto) {
     state.regions=[];paintLiveAreas();
     el('captureHint').textContent=state.autoFocus ? 'Автопоиск внутри выбранной рамки.'
-      : 'Рамки появятся автоматически. Если нужные области не нашлись, нажми «Разметить области».';
+      : 'Рамки появятся автоматически. Ручная разметка доступна в параметрах чтения.';
   }
   if(!state.running) {
     controls();status('Отметь документ');showTexts(null);
-    answer({title:'Отметь документ',subtitle:'Отметь хотя бы один файл в шаге «Добавь документы». Чтение начнётся автоматически.'});
+    answer({title:'Отметь документ',subtitle:'Открой «Управлять источниками» и отметь файл. Чтение начнётся автоматически.'});
     return;
   }
   controls(); status('Читаю окно','active'); notify();
@@ -927,6 +931,7 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
       }
       status('Ожидаю варианты','active');
     } else if (selection.selectionMode==='unknown') {
+      el('captureSettings').open = true;
       answer({title:'Уточни формат вопроса',subtitle:'В поле «Сколько вариантов можно отметить?» выбери «Один вариант» или «Несколько вариантов».',unclear:true});
       status('Нужен формат','problem');
     }
@@ -1061,8 +1066,16 @@ preview.addEventListener('resize',()=>{
 window.addEventListener('storage', event => {
   if(event.key===storageKey) {
     try {
-      if(JSON.parse(event.oldValue || '{}')?.model!==JSON.parse(event.newValue || '{}')?.model) loadModels();
+      const before = JSON.parse(event.oldValue || '{}') || {};
+      const after = JSON.parse(event.newValue || '{}') || {};
+      if (before.model !== after.model) loadModels();
+      if (JSON.stringify(before.selected) !== JSON.stringify(after.selected)) {
+        loadLectures().catch(error => { el('fileInfo').textContent = error.message; });
+      }
     } catch { /* Ignore unrelated or malformed settings. */ }
+  }
+  if (event.key === 'quizlens.sources.revision') {
+    loadLectures().catch(error => { el('fileInfo').textContent = error.message; });
   }
   if(event.key==='quizlens.corrections.rev') {
     answerCache.clear();
@@ -1076,11 +1089,6 @@ window.addEventListener('pagehide',()=>{
 idleAnswer(); controls();
 api('/api/health').then(health => {
   el('nativeLink').hidden = health.nativeCapture !== true;
-  if (health.distribution) {
-    el('releaseDownload').href = health.distribution.releases;
-    el('releaseGuide').href = health.distribution.guide;
-    el('releaseLinks').hidden = false;
-  }
 }).catch(() => {});
 loadLectures().catch(error=>{el('fileInfo').textContent=error.message;});
 loadModels();

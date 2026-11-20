@@ -7,13 +7,14 @@ import sys
 import venv
 
 APP = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP))
+from console_log import event
 
 
 def prepare():
     parent = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local")
     environment = parent / "QuizLens" / "runtime" / "windows-venv"
-    print("Установка Pillow (кадры) и pypdf (текстовые PDF) из PyPI.")
-    print("Пакеты будут находиться в отдельной папке этого пользователя:", environment)
+    event("Компоненты", "Установка Pillow для кадров и pypdf для PDF из PyPI в папку текущего пользователя.")
     if input("Нажми Enter для установки или введи 0 для выхода: ").strip():
         return 0
     venv.EnvBuilder(with_pip=True).create(environment)
@@ -21,8 +22,8 @@ def prepare():
     subprocess.run([str(executable), "-m", "pip", "--disable-pip-version-check", "install",
                     "--only-binary=:all:", "Pillow", "pypdf"], check=True)
     subprocess.run([str(executable), "-c", "from PIL import Image; from pypdf import PdfReader"], check=True)
-    print("Компоненты Python готовы. Установи Tesseract с языками rus и eng по инструкции START-HERE.txt.")
-    print("Открой Start.cmd для запуска.")
+    event("Компоненты", "Pillow и pypdf готовы. Установи Tesseract с языками rus и eng по инструкции START-HERE.txt.")
+    event("Сервер", "Открой Start.cmd для запуска.")
     return 0
 
 
@@ -31,11 +32,7 @@ def main():
         raise SystemExit("Этот файл запуска предназначен для Windows.")
     if sys.argv[1:] == ["--prepare"]:
         return prepare()
-    sys.path.insert(0, str(APP))
     import updater
-    import ocr
-    print("QuizLens · оставь это окно открытым. Для остановки нажми Ctrl+C.")
-    print(ocr.windows_ocr_status()["detail"])
     return updater.supervise()
 
 
@@ -45,5 +42,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         sys.exit(0)
     except (OSError, subprocess.CalledProcessError) as error:
-        print("QuizLens не завершил операцию.", error, file=sys.stderr)
+        event("Запуск", "Не удалось завершить операцию. Проверь доступ к папке приложения и инструкцию START-HERE.txt.",
+              level="ОШИБКА", error=error)
         sys.exit(1)

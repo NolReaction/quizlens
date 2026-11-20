@@ -62,38 +62,56 @@ async function json(path, payload) {
   return (await call(path, opts)).json();
 }
 
+let sourceFiles = [];
+let sourceSelection = new Set();
+let sourceRequest = 0;
+
 function selectedLectures() {
-  return [...el("lectures").querySelectorAll("input:checked")].map((input) => input.value);
+  return [...sourceSelection];
+}
+
+function updateSourceCount() {
+  el("materialSummary").textContent = `Отмечено ${sourceSelection.size} из ${sourceFiles.length}`;
+  controls();
+}
+
+function saveSourceSelection() {
+  previous.lectureIds = selectedLectures();
+  saveSharedSetting("selected", previous.lectureIds);
+  updateSourceCount();
+}
+
+function renderSources() {
+  QuizSources.render(el("lectures"), {
+    lectures: sourceFiles,
+    selected: sourceSelection,
+    onToggle(id, checked) {
+      if (checked) sourceSelection.add(id);
+      else sourceSelection.delete(id);
+      saveSourceSelection();
+    },
+    onDelete(id) {
+      sourceFiles = sourceFiles.filter(file => file.id !== id);
+      sourceSelection.delete(id);
+      saveSourceSelection();
+      renderSources();
+    },
+  });
+  updateSourceCount();
 }
 
 async function loadLectures(selected = previous.lectureIds) {
+  const request = ++sourceRequest;
   try {
-    const { lectures } = await json("/api/lectures");
-    const list = el("lectures");
-    list.replaceChildren();
-    const groups = [
-      ["Твои документы", lectures.filter(item => !item.builtIn)],
-      ["Примеры для пробного квиза", lectures.filter(item => item.builtIn)]
-    ];
-    for (const [name, items] of groups) {
-      if (!items.length) continue;
-      const heading = document.createElement("p");
-      heading.className = "document-group";
-      heading.textContent = name;
-      list.append(heading);
-      for (const lecture of items) {
-        const item = document.createElement("label");
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.value = lecture.id;
-        input.checked = !Array.isArray(selected) || selected.includes(lecture.id);
-        item.append(input, document.createTextNode(lecture.name));
-        list.append(item);
-      }
-    }
-    if (!lectures.length) el("files-info").textContent = "Добавь хотя бы один документ.";
-  } catch (error) { el("files-info").textContent = error.message; }
-  controls();
+    const {lectures} = await json("/api/lectures");
+    if (request !== sourceRequest) return;
+    sourceFiles = lectures;
+    const wanted = Array.isArray(selected) ? new Set(selected) : null;
+    sourceSelection = new Set(lectures.map(file => file.id).filter(id => !wanted || wanted.has(id)));
+    renderSources();
+  } catch (error) {
+    if (request === sourceRequest) el("files-info").textContent = error.message;
+  }
 }
 
 async function importLectures() {
@@ -102,7 +120,7 @@ async function importLectures() {
   const errors = [];
   el("files").disabled = true;
   for (const file of files) {
-    if (file.size > 32 * 1024 * 1024) { errors.push(file.name + " больше 32 МБ."); continue; }
+    if (file.size > 32 * 1024 * 1024) { errors.push(file.name + " больше 32 МиБ."); continue; }
     el("files-info").textContent = "Импорт " + file.name + "…";
     try {
       const response = await call("/api/import?name=" + encodeURIComponent(file.name), {
@@ -114,6 +132,10 @@ async function importLectures() {
   }
   saveSharedSetting("selected", [...selected]);
   await loadLectures([...selected]);
+  if (files.length > errors.length) {
+    el("sourceManager").open = true;
+    QuizSources.changed();
+  }
   el("files").value = "";
   el("files").disabled = false;
   el("files-info").textContent = errors.join(" ") || "Материалы готовы.";
@@ -455,10 +477,14 @@ el("start").onclick = () => startReading(false);
 el("auto").onclick = () => startReading(true);
 el("record").checked = previous.record !== false;
 el("record").onchange = () => saveSharedSetting("record", el("record").checked);
-el("lectures").onchange = () => {
-  saveSharedSetting("selected", selectedLectures());
-  controls();
-};
+window.addEventListener("storage", event => {
+  if (event.key === "quizlens.sources.revision" || event.key === "quizlens.settings.v1") {
+    const latest = loadPreferences().lectureIds;
+    if (event.key === "quizlens.sources.revision" || JSON.stringify(latest) !== JSON.stringify(selectedLectures())) {
+      loadLectures(latest);
+    }
+  }
+});
 el("model").onchange = () => {
   previous.model = el("model").value;
   saveSharedSetting("model", previous.model);

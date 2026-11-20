@@ -20,7 +20,8 @@ class Links(HTMLParser):
         attrs = dict(attrs)
         if "id" in attrs:
             self.ids.append(attrs["id"])
-        self.labels.extend(attrs.get("aria-labelledby", "").split())
+        for relation in ("aria-labelledby", "aria-describedby", "aria-controls"):
+            self.labels.extend(attrs.get(relation, "").split())
         if "href" in attrs:
             self.hrefs.append(attrs["href"])
         if tag == "script":
@@ -53,7 +54,8 @@ class TestPublicDownload(unittest.TestCase):
                 self.assertIn(f"https://github.com/{repo}/releases", links.hrefs)
                 self.assertIn(f"https://github.com/{repo}/blob/HEAD/docs/GUIDE.md", links.hrefs)
                 self.assertTrue((output / ".nojekyll").is_file())
-                self.assertIn("./QuizLens-Extension.zip", links.hrefs)
+                self.assertNotIn("./QuizLens-Extension.zip", links.hrefs)
+                self.assertIn("Показать папку расширения", html)
                 self.assertTrue({"extension", "components", "windows-ocr"}.issubset(links.ids))
                 with zipfile.ZipFile(output / "QuizLens-Extension.zip") as bundle:
                     manifest = json.loads(bundle.read("browser-extension/manifest.json"))

@@ -1,11 +1,28 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuizLens · Расширение браузера</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/check.css"><link rel="stylesheet" href="/extension-help.css"><script src="/extension-folder.js" defer></script></head>
-<body><header class="top"><div class="bar"><a class="brand" href="/"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a><nav><a class="subtle" href="/">К захвату →</a></nav></div></header>
+<html lang="ru"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>QuizLens · Расширение браузера</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/check.css">
+  <link rel="stylesheet" href="/extension-help.css">
+  <link rel="stylesheet" href="/navigation.css">
+  <script src="/navigation.js" defer></script>
+  <script src="/extension-folder.js" defer></script>
+</head>
+<body><header class="top"><div class="bar">
+  <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
+  <nav class="primary-nav" aria-label="Основные разделы">
+    <div class="nav-sections">
+      <a href="/">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+    </div>
+  </nav>
+</div></header>
 <main class="check extension-guide"><h1>Чтение квиза из вкладки</h1>
 <section class="panel"><h2>Установи расширение один раз</h2>
-<ol><li><p>Открой папку расширения. QuizLens сохранит её на компьютере и будет обновлять файлы вместе с приложением.</p>
-<button class="button" type="button" data-extension-folder hidden>Показать папку расширения</button><p class="hint folder-result" role="status" data-extension-status hidden></p>
-<p>Для ручной установки скачай ZIP и распакуй его в постоянную папку.</p><a class="button primary" href="/download/QuizLens-Extension.zip" download>Скачать расширение</a></li>
+<ol><li><p>Нажми «Показать папку расширения». QuizLens откроет постоянную папку и будет обновлять её вместе с приложением.</p>
+<button class="button primary" type="button" data-extension-folder hidden>Показать папку расширения</button><p class="hint folder-result" role="status" data-extension-status hidden></p>
+<p>При запуске из исходников можно выбрать папку <code>browser-extension</code> в проекте.</p></li>
 <li>Открой <code>chrome://extensions</code> в Chrome или <code>edge://extensions</code> в Edge. Включи <strong>«Режим разработчика»</strong>.</li>
 <li>Нажми <strong>«Загрузить распакованное расширение»</strong> и выбери папку, внутри которой лежит <code>manifest.json</code>.</li></ol></section>
 <section class="panel"><h2>Подключи две вкладки</h2><ol><li>Открой страницу «Захват» в том же браузере. Нажми на значок расширений, выбери QuizLens → <strong>«Подключить QuizLens»</strong>.</li>

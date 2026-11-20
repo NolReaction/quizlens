@@ -1,6 +1,24 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>QuizLens · Проверка перед занятием</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/check.css"><script src="/demo-window.js" defer></script><script src="/check.js" defer></script><script src="/update-activity.js" defer></script></head>
-<body data-update-busy='#test:disabled,#prepare:disabled'><header class="top"><div class="bar"><a class="brand" href="/"><i class="lens"></i>Quiz<span>Lens</span></a><nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train">Тренировка</a><a href="/setup#connection">LM Studio</a><a href="/journal">Журнал</a></nav></div></header>
+<html lang="ru"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuizLens · Проверка перед занятием</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/check.css">
+  <link rel="stylesheet" href="/navigation.css">
+  <script src="/navigation.js" defer></script>
+  <script src="/demo-window.js" defer></script>
+  <script src="/check.js" defer></script>
+  <script src="/update-activity.js" defer></script>
+</head>
+<body data-update-busy='#test:disabled,#prepare:disabled'><header class="top"><div class="bar">
+  <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
+  <nav class="primary-nav" aria-label="Основные разделы">
+    <div class="nav-sections">
+      <a href="/">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+    </div>
+  </nav>
+</div></header>
 <main class="check"><h1>Проверка перед занятием</h1>
 <section class="panel"><h2>Распознавание и ответ</h2><p>Выбери набор вопросов. С OCR приложение прочитает их с картинок. Проверка по готовому тексту сразу перейдёт к поиску ответа. Для проверки захвата открой пробный квиз в отдельном окне.</p><div class="test-actions"><a class="button" href="/demo?lobby=1" target="quizlens-demo" data-demo-window>Открыть пробный квиз ↗</a><a class="button" href="/setup#connection">Настроить LM Studio</a></div>
 <label for="questionSet">Проверочные вопросы</label><div class="line"><select id="questionSet"><option value="basic">Три базовых вопроса</option><option value="metrics">Проценты и метрики · проверка расчётов</option><option value="challenge">Новые формулировки и похожие варианты</option><option value="multiple">Несколько правильных ответов</option></select></div>

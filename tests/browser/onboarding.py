@@ -2,6 +2,7 @@
 
 import argparse
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import re
@@ -77,6 +78,12 @@ def check_selected_window(page):
     page.locator("#share").click()
     expect(page.locator("#videoBox")).to_be_visible()
     visible_action(page.locator("#run"))
+    page.locator("#serviceMenu > summary").click()
+    page.locator("#navUpdates").click()
+    expect(page.locator("dialog#appUpdates")).to_be_visible()
+    page.get_by_role("button", name="Закрыть обновления").click()
+    expect(page.locator("dialog#appUpdates")).to_be_hidden()
+    assert page.locator("#preview").evaluate("v => v.srcObject?.getVideoTracks()[0]?.readyState") == "live"
     page.locator("#release").click()
     expect(page.locator("#emptyStage")).to_be_visible()
     expect(page.locator("#run")).to_be_hidden()
@@ -121,6 +128,101 @@ def check_model_choices(page, directory, prefix):
     page.locator("#device-switch").click()
 
 
+def check_service_menu(page, origin):
+    toggle = page.locator("#serviceMenu > summary")
+    visible_action(toggle)
+    toggle.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator("#navCheck")).to_be_visible()
+    expect(page.locator("#navSetup")).to_have_attribute("href", "/setup#connection")
+    expect(page.locator("#navUpdates")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(page.locator("#navUpdates")).to_be_hidden()
+    expect(toggle).to_be_focused()
+    toggle.press("Enter")
+    page.locator("#navUpdates").press("Enter")
+    dialog = page.locator("dialog#appUpdates")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator("#installedVersion")).to_contain_text(re.compile(r"v?\d+\.\d+"))
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(page).to_have_url(origin + "/")
+    expect(toggle).to_be_focused()
+    page.goto(origin + "/#appUpdates")
+    expect(dialog).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+
+
+def check_sources(page, prefix):
+    manager = page.locator("#sourceManager")
+    summary = manager.locator("summary")
+    source_list = manager.locator("#lectureList")
+    name = f"ux-{prefix}.ipynb"
+    contents = [f"Материал номер {n:02}. Отношение числа верных прогнозов к общему числу объектов."
+                for n in range(1, 9)]
+    cells = [{"cell_type":"markdown", "metadata":{}, "source":[line]} for line in contents]
+    with tempfile.TemporaryDirectory(prefix="quizlens-user-doc-") as files_dir:
+        document = Path(files_dir) / name
+        original = json.dumps({"cells":cells, "metadata":{}, "nbformat":4, "nbformat_minor":5}).encode()
+        document.write_bytes(original)
+        with page.expect_file_chooser() as chosen:
+            page.locator("#addLecture").click()
+        chosen.value.set_files(document)
+        selected = source_list.get_by_role("checkbox", name=re.compile(re.escape(name)))
+        expect(selected).to_be_visible()
+        expect(selected).to_be_checked()
+        selected.uncheck()
+        page.reload()
+        # Reopen the manager through its user control if the new session starts collapsed.
+        if not manager.evaluate("el => el.open"):
+            summary.click()
+        expect(selected).not_to_be_checked()
+        # Capture and native capture share a document selection, including changes made in another open tab.
+        native = page.context.new_page()
+        try:
+            native.goto(page.url.split("#")[0].rstrip("/") + "/native")
+            native.locator("#sourceManager > summary").click()
+            native_choice = native.locator("#lectures").get_by_role("checkbox", name=re.compile(re.escape(name)))
+            expect(native_choice).to_be_visible()
+            expect(native_choice).not_to_be_checked()
+            native_choice.check()
+            expect(selected).to_be_checked()
+        finally:
+            native.close()
+            page.bring_to_front()
+
+        source_list.get_by_role("button", name=f"Посмотреть «{name}»").click()
+        dialog = page.locator("#sourceDialog")
+        expect(dialog).to_be_visible()
+        content = dialog.locator("#sourceContent")
+        expect(content).to_contain_text(contents[0])
+        dialog.locator("#sourceNext").click()
+        expect(content).not_to_contain_text(contents[0])
+        expect(content).to_contain_text(contents[-1])
+        dialog.locator("#sourcePrevious").click()
+        expect(content).to_contain_text(contents[0])
+        dialog.locator("#sourceClose").click()
+        expect(dialog).to_be_hidden()
+
+        remove = source_list.get_by_role("button", name=f"Удалить «{name}»")
+        remove.click()
+        expect(dialog.locator("#sourceConfirm")).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(dialog).to_be_hidden()
+        expect(selected).to_be_checked()
+        remove.click()
+        dialog.locator("#sourceConfirm").click()
+        expect(dialog).to_be_hidden()
+        expect(selected).to_have_count(0)
+        assert document.read_bytes() == original, "Local document library deletion affected the original file"
+        page.reload()
+        if not manager.evaluate("el => el.open"):
+            summary.click()
+        expect(source_list.get_by_role("checkbox").first).to_be_visible()
+        expect(selected).to_have_count(0)
+
+
 def check_first_run(browser, url, width, height, directory):
     ctx = browser.new_context(viewport={"width": width, "height": height}, locale="ru-RU")
     errors = []
@@ -140,7 +242,10 @@ def check_first_run(browser, url, width, height, directory):
         visible_action(demo_link, above_fold=width > 800)
         if width <= 800:
             visible_action(page.locator("#windowJump"))
-        expect(page.locator("#navSetup")).to_be_in_viewport()
+        expect(page.locator("#visual")).to_be_hidden()
+        expect(page.locator("a[href*='QuizLens-Extension.zip']")).to_have_count(0)
+        expect(page.locator("#sourceManager")).not_to_have_attribute("open", "")
+        check_service_menu(page, url)
         page_fits(page)
         screenshot(page, directory, prefix + "-capture")
         page.locator("#modelAdvisor").click()
@@ -159,18 +264,7 @@ def check_first_run(browser, url, width, height, directory):
         expect(page).to_have_url(url + "/#materials")
         expect(page.locator("#addLecture")).to_be_in_viewport()
 
-        with page.expect_file_chooser() as chosen:
-            page.locator("#addLecture").click()
-        lecture = f"ux-{prefix}.txt"
-        chosen.value.set_files({"name": lecture, "mimeType": "text/plain",
-                                "buffer": "Precision учитывает ложные срабатывания.".encode()})
-        selected = page.locator("#materials #lectureList").get_by_role("checkbox", name=re.compile(re.escape(lecture)))
-        expect(selected).to_be_checked()
-        selected.uncheck()
-        page.reload()
-        expect(selected).not_to_be_checked()
-        selected.check()
-        expect(selected).to_be_checked()
+        check_sources(page, prefix)
 
         if width <= 800:
             page.locator("#windowJump").click()
@@ -199,6 +293,7 @@ def check_first_run(browser, url, width, height, directory):
         expect(page.locator("#practice")).to_be_enabled()
         expect(page.locator("#bench")).to_be_disabled()
         visible_action(page.locator("#cards"), above_fold=width > 800)
+        expect(page.get_by_role("link", name="Задачи по графикам и таблицам")).to_have_attribute("href", "/visual")
         visible_action(page.locator("a[data-demo-window]").first, above_fold=width > 800)
         page_fits(page)
         screenshot(page, directory, prefix + "-training")

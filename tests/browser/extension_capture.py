@@ -46,7 +46,7 @@ def run(url, temp):
             harness.goto(f"chrome-extension://{extension_id}/popup.html")
             capture = context.new_page()
             capture.goto(url)
-            expect(capture.locator("#materials input:checked").first).to_be_visible()
+            expect(capture.locator("#lectureList input:checked")).to_have_count(3)
             press_action(capture, harness, "Подключить QuizLens")
             expect(capture.locator("#tabReaderStatus")).to_contain_text("подключён")
             subprocess.run(["xdotool", "key", "Escape"], check=True)

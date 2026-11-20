@@ -21,6 +21,8 @@ from urllib.parse import urlsplit
 from urllib.request import build_opener, HTTPRedirectHandler, Request
 import zipfile
 
+from console_log import event
+
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = "NolReaction/quizlens"
 RELEASES = "https://github.com/" + REPOSITORY + "/releases"
@@ -253,7 +255,8 @@ class Updates:
                 self.checked = time.monotonic()
                 self.message = "Не удалось обновить QuizLens. " + (
                     str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "Проверь соединение и попробуй снова.")
-            print("QuizLens · Update:", exc, file=sys.stderr, flush=True)
+            event("Обновления", "Не удалось завершить обновление. Подробности в меню обновлений.",
+                  level="ВНИМАНИЕ", error=exc, repeat_after=60)
 
     def check(self, manual):
         version, digest = latest_release(platform_asset())
@@ -270,9 +273,11 @@ class Updates:
                 self.state, self.message = "available", f"Доступна версия {version}."
 
     def download(self):
+        event("Обновления", "Загружается новая версия.")
         stage_release(self.cache, self.latest, self.digest, platform_asset())
         with self.lock:
             self.state, self.message = "ready", f"Версия {self.latest} готова к запуску."
+        event("Обновления", "Новая версия проверена и готова к запуску.")
 
     @contextlib.contextmanager
     def work(self):
@@ -435,12 +440,14 @@ def supervise():
                         write_json(cache / "active.json", {"version": version})
                         (cache / "rejected.json").unlink(missing_ok=True)
                         start, current = candidate, version
+                        event("Обновления", f"QuizLens {version} запущен и проверен.")
                 except (OSError, ValueError, RuntimeError) as exc:
                     stop_child(child)
                     ready_file.unlink(missing_ok=True)
                     message = f"Версия {version} не запустилась. Восстановлена предыдущая версия {current}."
                     write_json(cache / "rejected.json", {"version": version, "restored": current, "message": message})
-                    print(message, exc, file=sys.stderr, flush=True)
+                    event("Обновления", "Новая версия не запустилась. Возвращаюсь к предыдущей.",
+                          level="ВНИМАНИЕ", error=exc)
                     child = start_server(start, args, session, port, False)
         except KeyboardInterrupt:
             return 0

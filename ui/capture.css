@@ -1,13 +1,12 @@
 #sessionView {padding-top:clamp(22px, 3vw, 38px)}
 .capture-heading, .section-head, .step-heading, .step-actions, .model-picker,
-.upload-row, .document-heading, .session-actions, .capture-links {
+.upload-row, .document-heading, .session-actions {
   display:flex;
   align-items:center;
   gap:10px;
 }
 .capture-heading {justify-content:space-between; margin-bottom:20px}
-.capture-heading p, .step-intro {color:var(--muted); line-height:1.45}
-.capture-heading p {margin-top:3px}
+.step-intro {color:var(--muted); line-height:1.45}
 .jump-link, #sessionView .text-link, #sessionView .subtle {
   color:var(--mint);
   font-weight:550;
@@ -43,7 +42,7 @@
 #sessionView .lecture-item input {margin:0; width:1rem; height:1rem; flex-shrink:0}
 #sessionView .lecture-item span {font-size:.91rem}
 #sessionView .notice {margin:0 0 16px}
-#windowStep, #materials {scroll-margin-top:16px}
+#windowStep, #materials, #ocrComponent {scroll-margin-top:1rem}
 #windowStep:focus {outline:none}
 #windowStep:focus-visible {outline:2px solid var(--sky); outline-offset:3px}
 #windowStep .section-head {margin-bottom:0}
@@ -58,16 +57,13 @@
 #sessionView .empty strong {font-size:.91rem; font-weight:500; color:var(--muted)}
 #nativeLink {display:inline-flex; align-items:center; min-height:42px}
 .capture-feedback {color:var(--muted); margin-top:4px; font-size:.89rem}
-#sessionView .capture-settings {margin-top:16px; padding-top:13px}
-#sessionView .capture-controls {margin:10px 0 0}
-#sessionView .capture-settings .config-label {margin-top:8px}
+#sessionView .capture-controls {margin:4px 0 0}
+#sessionView:not(.sharing) .capture-controls {display:none}
 #sessionView #selectionMode {max-width:28rem}
 #sessionView .readout {border-top:1px solid #344941; padding-top:12px; font-size:.9rem}
 #sessionView .readout h3 {color:#c5dacf}
-#sessionView .result-tools {margin:.75rem 0 0}
-#sessionView .result-tools .subtle {min-height:36px; display:inline-flex; align-items:center}
-#sessionView .capture-links {margin-top:22px; flex-wrap:wrap; gap:10px 18px}
-#sessionView .capture-links a {display:inline-flex; align-items:center; min-height:40px}
+#sessionView .result-tools {margin:0; align-items:flex-start}
+#sessionView .result-tools:has(#visual:not([hidden])) {margin-top:14px}
 #sessionView.sharing .capture, #sessionView .capture:target {border-color:#4e7465}
 @media (min-width:721px) and (max-height:820px) {
   #sessionView {padding-top:18px}
@@ -93,22 +89,46 @@
 .reading-warning img {display:block; max-width:100%; width:auto; height:60px; margin-top:8px; object-fit:contain; object-position:left center}
 .reading-warning img.reading-row {height:auto; max-height:190px}
 
-.heading-actions, .component-actions, .update-controls {display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px}
-.heading-actions {justify-content:flex-end}
-#sessionView .update-jump {color:var(--muted); gap:4px}
-#updateBadge {color:var(--mint); font-variant-numeric:tabular-nums}
-.capture-install {display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px 15px; align-items:center; padding:13px 15px; margin:0 0 10px; background:#172923; border:1px solid #365345; border-radius:10px}
-.component-intro {flex:1 1 15rem; min-width:0}
-.component-intro h3, .ocr-component h3 {margin:0; font-size:.98rem; font-weight:650}
-.component-intro p {margin:3px 0 0; font-size:.89rem; color:var(--muted); line-height:1.45}
-.ocr-component {padding:0 0 14px; border-bottom:1px solid var(--border); margin:0 0 14px}
-.ocr-component .hint {margin:4px 0}
-.app-updates {margin-top:18px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 22px; scroll-margin-top:16px}
-.app-updates .record-label {margin:0; min-height:44px; align-items:center; color:var(--muted); font-size:.89rem}
-.installed-version {margin-left:4px; color:var(--sub); font-size:.87rem; font-weight:500}
-@media(max-width:720px) {
-  .heading-actions {justify-content:flex-start}
-  .capture-install .component-actions {gap:4px 10px}
-  .app-updates .component-intro {flex-basis:100%}
+.component-actions {display:flex; align-items:center; flex-wrap:wrap; gap:8px}
+.capture-menu {
+  padding:0; margin:0; border:0; border-top:1px solid var(--border);
+  color:var(--ink); font-size:1rem;
 }
-.folder-result {flex-basis:100%; overflow-wrap:anywhere; user-select:text}
+#stage {margin-bottom:12px}
+.capture-menu > summary {
+  display:flex; gap:8px; align-items:center; min-height:48px; max-width:none;
+  border-radius:4px; cursor:pointer; color:var(--ink); font-weight:600; list-style:none;
+}
+.capture-menu > summary::-webkit-details-marker {display:none}
+.capture-menu > summary span {font-size:.84rem; font-weight:500; color:var(--muted)}
+.capture-menu > summary::after {
+  content:""; width:7px; height:7px; border-right:2px solid currentColor;
+  border-bottom:2px solid currentColor; transform:rotate(45deg); margin:0 5px 4px auto; color:var(--sub);
+}
+.capture-menu[open] > summary::after {transform:rotate(225deg); margin-bottom:-4px}
+.capture-menu > summary:hover {color:var(--mint)}
+#sessionView #captureOptions {font-size:1rem}
+.menu-content {padding:2px 0 14px; display:grid; gap:10px}
+.menu-content > p {color:var(--muted); font-size:.93rem; line-height:1.5}
+.menu-content .config-label, .menu-content .record-label {margin:0; font-size:.93rem}
+.menu-content .record-label {min-height:36px; align-items:center; gap:10px}
+.menu-content .record-label input {width:18px; height:18px; margin:0; flex-shrink:0}
+.ocr-component {scroll-margin-top:1rem; margin:12px 0; padding:12px 14px; background:#222b29; border-inline-start:3px solid var(--warn); border-radius:5px}
+.ocr-component h3 {margin:0; color:var(--ink); font-size:1rem}
+.ocr-component .hint {margin:4px 0 0; font-size:.93rem}
+.ocr-component[data-status="ready"] {border-color:var(--mint)}
+.ocr-component .button {margin-top:10px}
+.folder-result {overflow-wrap:anywhere; user-select:text}
+#tabReaderStatus:not(:empty) {margin:.7rem 0}
+#stopTabReader {margin-bottom:12px}
+@media (prefers-reduced-motion:no-preference) {
+  #sessionView .button, #sessionView .mini-button, .capture-menu > summary {transition:background-color .16s ease, border-color .16s ease, color .16s ease}
+  .capture-menu > summary::after {transition:transform .16s ease}
+  .capture-menu[open] > .menu-content {animation:capture-menu-enter .16s ease-out}
+  @keyframes capture-menu-enter {from {opacity:0; transform:translateY(-3px)} to {opacity:1; transform:translateY(0)}}
+}
+@media (max-width:450px) {
+  .capture-menu > summary {flex-wrap:wrap; gap:6px; font-size:.95rem}
+  .capture-menu > summary span {font-size:.8rem}
+  .component-actions > .button {flex:1 1 12rem}
+}

@@ -1,14 +1,12 @@
 """Follow the public download path against the real built site, with GitHub API unavailable."""
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
-import zipfile
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -21,32 +19,47 @@ class QuietFiles(SimpleHTTPRequestHandler):
 
 
 def check_page(browser, origin, viewport):
-    with browser.new_context(viewport=viewport, locale="ru-RU", accept_downloads=True) as ctx:
-        # A blocked GitHub API (or an out-of-date release) must not hide the standalone extension.
+    with browser.new_context(viewport=viewport, locale="ru-RU", reduced_motion="reduce") as ctx:
+        # The installation guide and release-list fallbacks also work during API downtime.
         ctx.route("https://api.github.com/**", lambda route: route.abort())
         page = ctx.new_page()
         page.goto(origin)
-        download_link = page.locator("#extension-download")
-        visible_action(download_link)
+        for system in ("windows", "mac"):
+            download = page.locator(f"#{system}-download")
+            visible_action(download)
+            expect(download).to_have_attribute("href", "https://github.com/NolReaction/quizlens/releases")
+        expect(page.locator("a[href*='QuizLens-Extension.zip']")).to_have_count(0)
         page_fits(page)
-        with page.expect_download() as result:
-            download_link.click()
-        download = result.value
-        assert download.suggested_filename == "QuizLens-Extension.zip", download.suggested_filename
-        with zipfile.ZipFile(download.path()) as bundle:
-            assert bundle.testzip() is None
-            source = ROOT / "browser-extension"
-            files = [name for name in bundle.namelist() if not name.endswith("/")]
-            expected = {f"browser-extension/{file.name}" for file in source.iterdir() if file.is_file()}
-            assert set(files) == expected and len(files) == len(expected), files
-            for name in files:
-                assert bundle.read(name).replace(b"\r\n", b"\n") == (ROOT / name).read_bytes().replace(b"\r\n", b"\n"), name
-            manifest = json.loads(bundle.read("browser-extension/manifest.json"))
-            assert "activeTab" in manifest["permissions"] and not manifest.get("host_permissions")
-        installation = page.locator("#components")
-        expect(installation).to_be_visible()
-        expect(installation.get_by_role("link", name="LM Studio", exact=False).first).to_be_visible()
+        assert page.evaluate("getComputedStyle(document.documentElement).scrollBehavior") == "auto"
+        menu = page.locator("#nav-toggle")
+        nav = page.locator("#site-nav")
+        mobile = viewport["width"] <= 740
+        if mobile:
+            visible_action(menu)
+            expect(nav).to_be_hidden()
+            menu.focus()
+            page.keyboard.press("Enter")
+            page.keyboard.press("Tab")
+            expect(nav.get_by_role("link").first).to_be_focused()
+            page.keyboard.press("Escape")
+            expect(nav).to_be_hidden()
+            expect(menu).to_be_focused()
+            menu.click()
+        else:
+            expect(menu).to_be_hidden()
+        nav.get_by_role("link", name="Расширение").click()
+        extension = page.locator("#extension")
+        expect(extension).to_be_in_viewport()
+        expect(extension).to_contain_text("Показать папку расширения")
+        if mobile:
+            expect(nav).to_be_hidden()
+            expect(extension).to_be_focused()
+            menu.click()
+        nav.get_by_role("link", name="Компоненты").click()
+        expect(page.locator("#components")).to_be_in_viewport()
+        expect(page.locator("#components").get_by_role("link", name="Скачать LM Studio")).to_be_visible()
         expect(page.locator("#windows-ocr")).to_be_visible()
+        page_fits(page)
 
 
 if __name__ == "__main__":
@@ -66,7 +79,7 @@ if __name__ == "__main__":
                     try:
                         for width, height in ((1280, 720), (390, 844)):
                             check_page(browser, f"http://127.0.0.1:{server.server_port}", {"width": width, "height": height})
-                            print(f"Verified standalone extension download and component links at {width}px.")
+                            print(f"Verified platform downloads, bundled extension guide and navigation at {width}px.")
                     finally:
                         browser.close()
             finally:

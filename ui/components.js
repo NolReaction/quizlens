@@ -6,11 +6,28 @@
   const install = document.getElementById('ocrInstall');
   let timer;
   let previous;
+  let requestedInstall = false;
+
+  function updateVisibility() {
+    const isLinked = location.hash === '#ocrComponent';
+    box.hidden = !isLinked && !requestedInstall && (!box.dataset.status || box.dataset.status === 'ready');
+    return isLinked;
+  }
+
+  function followComponentLink() {
+    if (updateVisibility()) {
+      box.focus({preventScroll:true});
+      box.scrollIntoView({block:'start'});
+    }
+  }
+  window.addEventListener('hashchange', followComponentLink);
+  followComponentLink();
 
   async function refresh(start = false) {
     clearTimeout(timer);
     install.disabled = true;
     if (start) {
+      requestedInstall = true;
       box.dataset.status = 'installing';
       message.textContent = 'Запускаю установщик распознавания…';
     }
@@ -32,6 +49,8 @@
       // Re-read its status before allowing another install.
       if (start || previous?.status === 'installing') timer = setTimeout(refresh, 3000);
       else { box.dataset.status = 'unknown'; install.disabled = false; }
+    } finally {
+      updateVisibility();
     }
   }
   install.addEventListener('click', () => refresh(true));

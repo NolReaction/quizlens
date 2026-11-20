@@ -1,15 +1,32 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Тренировка · QuizLens</title>
-<link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/train.css"><script src="/demo-window.js" defer></script><script src="/train.js" defer></script><script src="/update-activity.js" defer></script></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тренировка · QuizLens</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/train.css">
+  <link rel="stylesheet" href="/navigation.css">
+  <script src="/navigation.js" defer></script>
+  <script src="/demo-window.js" defer></script>
+  <script src="/train.js" defer></script>
+  <script src="/update-activity.js" defer></script>
+</head>
 <body data-update-busy='#round:not([hidden]),#flashcards:not([hidden]),#material:disabled'>
-<header class="top"><div class="bar"><a class="brand" href="/"><i class="lens"></i>Quiz<span>Lens</span></a><nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train" aria-current="page">Тренировка</a><a href="/setup#connection">LM Studio</a><a href="/journal">Журнал</a></nav></div></header>
+<header class="top"><div class="bar">
+  <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
+  <nav class="primary-nav" aria-label="Основные разделы">
+    <div class="nav-sections">
+      <a href="/">Захват</a><a href="/train" aria-current="page">Тренировка</a><a href="/journal">Журнал</a>
+    </div>
+  </nav>
+</div></header>
 <main class="train">
 <div class="train-title"><h1>Тренировка</h1></div>
 <section id="setup" aria-label="Выбор тренировки">
   <div class="train-tools">
     <a class="button demo-action" href="/demo?lobby=1" target="quizlens-demo" data-demo-window>Открыть пробный квиз ↗</a>
-    <a class="button" href="/setup#connection">Настроить LM Studio</a>
+    <a class="button" href="/visual">Задачи по графикам и таблицам</a>
   </div>
   <div class="train-layout">
     <section class="panel study-panel">
@@ -29,7 +46,6 @@
       <div class="line"><select id="localModel"><option value="">Модель не выбрана</option></select><button type="button" class="button" id="refresh">Обновить</button></div>
       <p id="modelStatus" class="hint" role="status"></p>
       <div class="buttons"><button type="button" class="button" id="bench" disabled>Проверить модель</button></div>
-      <a class="chart-link" href="/visual">Разобрать график или таблицу →</a>
     </section>
   </div>
   <div class="panel draft-panel" id="generation" hidden><h2>Карточки по своей лекции</h2><p class="hint">Модель подготовит вопросы. Сверь ответы с цитатами и сохрани карточки для занятий.</p><button type="button" class="button" id="generate">Подготовить вопросы</button><div id="review"></div></div>

@@ -50,9 +50,11 @@ def check_local_updates(browser, origin):
     context.route("**/api/components/extension", lambda route: route.fulfill(json={"path":"C:/QuizLens/browser-extension"}))
     try:
         page.goto(origin)
-        expect(page.locator("#extensionDownload")).to_have_attribute("href", "/download/QuizLens-Extension.zip")
+        expect(page.locator("a[href*='QuizLens-Extension.zip']")).to_have_count(0)
+        page.locator("#tabReaderSetup > summary").click()
         page.locator("[data-extension-folder]").click()
         expect(page.locator("[data-extension-status]")).to_contain_text("C:/QuizLens/browser-extension")
+        page.goto(origin + "/#ocrComponent")
         page.locator("#ocrInstall").click()
         expect(page.locator("#ocrComponentStatus")).to_have_text("Устанавливаю OCR")
         ocr_status = "ready"
@@ -67,6 +69,9 @@ def check_local_updates(browser, origin):
         blocked.wait_for_function("""async () => (await navigator.locks.query()).held.some(lock =>
             lock.name === 'quizlens.active-session' && lock.mode === 'shared')""")
         page.bring_to_front()
+        page.goto(origin + "/#appUpdates")
+        dialog = page.locator("dialog#appUpdates")
+        expect(dialog).to_be_visible()
         page.locator("#updateAction").click()
         expect(page.locator("#updateAction")).to_have_text("Обновить QuizLens")
         page.locator("#automaticUpdates").check()
@@ -75,10 +80,13 @@ def check_local_updates(browser, origin):
         blocked.close()
         expect(page.locator("#installedVersion")).to_have_text("v" + successor, timeout=16000)
         assert posts.count("apply") == 1 and posts.count("activate") == 1, posts
+        expect(dialog).to_be_visible()
         expect(page.locator("#updateAction")).to_be_enabled()
 
         page.goto(origin + "/tab-reader-help.html")
         expect(page.locator("[data-extension-folder]")).to_be_visible()
-        expect(page.locator("a[download]")).to_have_attribute("href", "/download/QuizLens-Extension.zip")
+        expect(page.locator("a[href*='QuizLens-Extension.zip']")).to_have_count(0)
+        page.locator("[data-extension-folder]").click()
+        expect(page.locator("[data-extension-status]")).to_contain_text("C:/QuizLens/browser-extension")
     finally:
         context.close()

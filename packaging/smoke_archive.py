@@ -98,7 +98,8 @@ def smoke(archive, signing):
                 from unittest.mock import patch
                 spec = importlib.util.spec_from_file_location("packaged_updater", version_root.parent / "updater.py")
                 shipped_updater = importlib.util.module_from_spec(spec)
-                with patch.object(sys, "dont_write_bytecode", True):
+                with patch.object(sys, "dont_write_bytecode", True), patch.object(
+                        sys, "path", [str(version_root.parent), *sys.path]):
                     spec.loader.exec_module(shipped_updater)
                 archive_bytes = archive.read_bytes()
                 digest = hashlib.sha256(archive_bytes).hexdigest()

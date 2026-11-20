@@ -12,16 +12,29 @@
 <header class="bar">
   <div class="wrap nav">
     <a href="./" class="brand" aria-label="QuizLens, начало страницы"><span class="lens" aria-hidden="true"></span>Quiz<span>Lens</span></a>
-    <nav aria-label="Навигация"><a href="#download">Скачать</a><a href="#start">Установка</a><a href="#components">Компоненты</a></nav>
+    <button type="button" id="nav-toggle" class="nav-toggle" aria-controls="site-nav" aria-expanded="false" hidden><span class="menu-icon" aria-hidden="true"></span>Меню</button>
+    <nav id="site-nav" aria-label="Разделы страницы"><a href="#download" aria-current="location">Скачать</a><a href="#start">Первый запуск</a><a href="#extension">Расширение</a><a href="#components">Компоненты</a></nav>
   </div>
 </header>
 <main id="main">
-  <section class="hero wrap" aria-labelledby="intro">
+  <section id="download" class="hero wrap" aria-labelledby="intro" tabindex="-1">
     <div class="intro">
-      <h1 id="intro">Ответ на квиз <em>из твоей лекции.</em></h1>
-      <p>Подключи вкладку квиза или выбери окно. QuizLens прочитает вопрос, найдёт ответ в твоих документах и покажет цитату. Документы и обработка остаются на компьютере.</p>
-      <div class="hero-actions"><a id="hero-action" class="button primary" href="#download">Выбрать сборку <span aria-hidden="true">↓</span></a><a id="extension-download" class="button secondary" href="./QuizLens-Extension.zip" download>Скачать расширение ↓</a></div>
-      <div class="intro-links"><a href="#extension">Как подключить расширение</a><a href="#components">Установить компоненты</a></div>
+      <h1 id="intro">Ответ на квиз <em>из твоих документов.</em></h1>
+      <p>QuizLens читает вопрос из вкладки или окна, находит ответ в конспекте и показывает цитату. Обработка идёт на твоём компьютере.</p>
+      <p id="device-note" class="device-note">Выбери систему своего компьютера.</p>
+      <div class="downloads">
+        <article class="build" id="windows-card">
+          <div class="build-heading"><h2>Windows</h2><span class="match" hidden>Твой ПК</span></div>
+          <p>Windows 10/11 · x64</p><p class="metadata" id="windows-info">QuizLens-Windows.zip</p>
+          <a id="windows-download" class="button asset" href="{{REPO_URL}}/releases">Выпуски для Windows ↗</a>
+        </article>
+        <article class="build" id="mac-card" tabindex="-1">
+          <div class="build-heading"><h2>macOS</h2><span class="match" hidden>Твой Mac</span></div>
+          <p>macOS 14+ · Apple Silicon и Intel</p><p class="metadata" id="mac-info">QuizLens-Mac.zip</p>
+          <a id="mac-download" aria-describedby="sign-info" class="button asset" href="{{REPO_URL}}/releases">Выпуски для Mac ↗</a>
+          <p id="sign-info" class="fine">Сведения о подписи указаны в выпуске.</p>
+        </article>
+      </div>
     </div>
     <aside class="preview" aria-label="Пример работы QuizLens">
       <div class="preview-caption"><span class="caption-dot" aria-hidden="true"></span>Пример подсказки</div>
@@ -29,39 +42,25 @@
       <div class="examples"><span>25 %</span><span>50 %</span><strong>75 % <i aria-hidden="true">✓</i></strong><span>100 %</span></div>
       <div class="evidence"><div>Из лекции</div><p>Precision — доля верных предупреждений среди всех предупреждений модели.</p><code>30 ÷ 40 = 0,75</code></div>
     </aside>
+    <div class="release-row"><p id="release-status" role="status">Выпуски публикуются на GitHub.</p><a id="releases" href="{{REPO_URL}}/releases">Все выпуски ↗</a></div>
   </section>
 
-  <section id="download" class="download section" aria-labelledby="download-title">
-    <div class="wrap">
-      <div class="section-heading"><div><h2 id="download-title">Скачать QuizLens</h2><p id="device-note">Выбери систему компьютера, на котором будешь проходить квиз.</p></div><button id="share" type="button" class="text-link" hidden>Скопировать ссылку</button></div>
-      <p id="share-message" class="feedback" role="status"></p>
-      <div class="build-grid">
-        <article class="build" id="mac-card" tabindex="-1"><div class="build-heading"><h3>macOS</h3><span class="match" hidden>Для этого устройства</span></div><p>macOS 14+ · Apple Silicon и Intel</p><p class="metadata" id="mac-info">Архив QuizLens-Mac.zip</p><a id="mac-download" aria-describedby="sign-info" class="button asset" href="{{REPO_URL}}/releases">Релизы для Mac <span aria-hidden="true">↗</span></a><p id="sign-info" class="fine">Сведения о подписи указаны в выпуске.</p></article>
-        <article class="build" id="windows-card"><div class="build-heading"><h3>Windows</h3><span class="match" hidden>Для этого устройства</span></div><p>Windows 10/11 · 64-разрядная система x64</p><p class="metadata" id="windows-info">Архив QuizLens-Windows.zip</p><a id="windows-download" class="button asset" href="{{REPO_URL}}/releases">Релизы для Windows <span aria-hidden="true">↗</span></a><p class="fine">Старт — файл Start.cmd. Для браузерного квиза подойдёт расширение.</p></article>
-      </div>
-      <div class="release-row"><p id="release-status" role="status">Публикации и контрольные суммы доступны в GitHub Releases.</p><a id="releases" href="{{REPO_URL}}/releases">Все выпуски ↗</a></div>
-      <noscript><p>Открой список выпусков. В разделе Assets выбери архив своей системы. Подробная инструкция есть ниже.</p></noscript>
-    </div>
-  </section>
-
-  <section id="start" class="guide wrap section" aria-labelledby="guide-title">
+  <section id="start" class="guide wrap section" tabindex="-1" aria-labelledby="guide-title">
     <div class="section-heading"><div><h2 id="guide-title">Первый запуск</h2></div><a href="{{REPO_URL}}/blob/HEAD/docs/GUIDE.md" class="text-link">Полная инструкция ↗</a></div>
     <div class="build-grid">
-      <article id="windows-install" class="build install-card"><h3>Windows</h3><p>Установи Python 3.9+ x64, если его ещё нет. Распакуй архив через «Извлечь всё» и открой <strong>Start.cmd</strong>. Оставь консоль открытой во время работы.</p></article>
-      <article id="mac-install" class="build install-card"><h3>Mac</h3><p>Установи Python 3.9+, если его ещё нет. Распакуй ZIP, перенеси <strong>QuizLens.app</strong> в «Программы» и открой. Страница захвата появится в браузере.</p></article>
+      <article id="windows-install" class="build install-card"><h3>Windows</h3><p>Установи <a href="#components">Python 3.9+ x64</a>, если его ещё нет. Распакуй архив через «Извлечь всё» и открой <strong>Start.cmd</strong>. Оставь консоль открытой во время работы.</p></article>
+      <article id="mac-install" class="build install-card"><h3>Mac</h3><p>Установи <a href="#components">Python 3.9+</a>, если его ещё нет. Распакуй ZIP, перенеси <strong>QuizLens.app</strong> в «Программы» и открой. Страница захвата появится в браузере.</p></article>
     </div>
-    <p class="update-note">В QuizLens 1.9 и новее можно включить <a href="http://127.0.0.1:8765/#appUpdates">автообновление между занятиями</a> в запущенном приложении. Для перехода с 1.8 один раз запусти новую версию из архива.</p>
-    <article id="extension" class="extension-panel" aria-labelledby="extension-title">
-      <div><h3 id="extension-title">Читать квиз из вкладки</h3><p>Для Chrome и Edge. Подключение работает с QuizLens 1.8 и новее. Если приложение уже запущено, нажми в нём «Показать папку расширения». Эту папку можно сразу выбрать в браузере.</p>
-        <a id="setup-extension-download" class="button asset" href="./QuizLens-Extension.zip" download>Скачать расширение ZIP ↓</a></div>
+    <article id="extension" class="extension-panel" aria-labelledby="extension-title" tabindex="-1">
+      <div><h3 id="extension-title">Подключение расширения</h3><p>Расширение для Chrome и Edge уже входит в QuizLens. Оно читает вопрос и варианты прямо из вкладки.</p></div>
       <ol>
-        <li>Если скачал отдельный ZIP, распакуй его в постоянную папку. Открой <code>chrome://extensions</code> или <code>edge://extensions</code>.</li>
-        <li>Включи <strong>«Режим разработчика»</strong>, нажми <strong>«Загрузить распакованное расширение»</strong> и выбери папку <code>browser-extension</code> с файлом <code>manifest.json</code>.</li>
-        <li>В QuizLens нажми значок расширения → <strong>«Подключить QuizLens»</strong>. Затем во вкладке квиза нажми тот же значок → <strong>«Читать вопросы»</strong>.</li>
+        <li>В запущенном QuizLens нажми <strong>«Показать папку расширения»</strong>. Оставь эту папку открытой.</li>
+        <li>Открой <code>chrome://extensions</code> или <code>edge://extensions</code>. Включи <strong>«Режим разработчика»</strong>, нажми <strong>«Загрузить распакованное расширение»</strong> и выбери папку <code>browser-extension</code> с файлом <code>manifest.json</code>.</li>
+        <li>На вкладке QuizLens нажми значок расширения и выбери <strong>«Подключить QuizLens»</strong>. Во вкладке квиза выбери <strong>«Читать вопросы»</strong>.</li>
       </ol>
     </article>
   </section>
-  <section id="components" class="components section" aria-labelledby="components-title"><div class="wrap">
+  <section id="components" class="components section" tabindex="-1" aria-labelledby="components-title"><div class="wrap">
     <div class="section-heading"><div><h2 id="components-title">Компоненты для твоего режима</h2><p>Для запуска нужен Python. Остальное зависит от того, как ты читаешь вопросы и получаешь ответы.</p></div></div>
     <div class="first-run-grid">
       <article class="first-run-card"><h3>Python</h3><p>Запускает QuizLens на компьютере. Если подходящий Python уже есть, можно сразу открыть приложение.</p>
@@ -73,6 +72,6 @@
     </div>
   </div></section>
 </main>
-<footer class="wrap foot"><span>QuizLens</span><a href="{{REPO_URL}}">Исходный код на GitHub ↗</a></footer>
+<footer class="wrap foot"><span>QuizLens</span><div class="footer-actions"><button id="share" type="button" class="text-link" hidden>Скопировать ссылку</button><a href="{{REPO_URL}}">Исходный код ↗</a></div><p id="share-message" class="feedback" role="status"></p></footer>
 </body>
 </html>

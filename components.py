@@ -14,6 +14,7 @@ import threading
 from urllib.request import urlopen
 
 import ocr
+from console_log import event
 from extension_package import EXTENSION_FILES
 
 # The upstream tessdata_fast 4.1.0 language files, in bytes and SHA-256.
@@ -44,7 +45,7 @@ class ExtensionFolder:
 
     def open(self):
         if sys.platform not in {"win32", "darwin"}:
-            raise ValueError("Скачай ZIP расширения и распакуй его в постоянную папку.")
+            raise ValueError("Выбери папку browser-extension в каталоге QuizLens.")
         self.sync()
         if sys.platform == "win32":
             os.startfile(str(self.target))
@@ -84,7 +85,7 @@ def install_python(runtime):
         pending = Path(directory) / "packages"
         subprocess.run([sys.executable, "-m", "pip", "--isolated", "--disable-pip-version-check", "install",
                         "--index-url", "https://pypi.org/simple", "--only-binary=:all:", "--target",
-                        str(pending), "Pillow", "pypdf"], stdin=subprocess.DEVNULL, check=True, timeout=300)
+                        str(pending), "Pillow", "pypdf"], stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=300)
         subprocess.run([sys.executable, "-I", "-c",
                         "import sys; sys.path.insert(0, sys.argv[1]); from PIL import Image; from pypdf import PdfReader",
                         str(pending)], check=True, timeout=30)
@@ -136,7 +137,7 @@ def install_windows(runtime, progress):
         progress("Устанавливаю Tesseract. Если Windows запросит разрешение, подтверди установку.")
         result = subprocess.run([winget, "install", "--id", "tesseract-ocr.tesseract", "--exact",
                                  "--source", "winget", "--accept-source-agreements", "--accept-package-agreements",
-                                 "--silent", "--disable-interactivity"], stdin=subprocess.DEVNULL, timeout=420)
+                                 "--silent", "--disable-interactivity"], stdin=subprocess.DEVNULL, capture_output=True, timeout=420)
         try:
             ocr._tesseract_binary()
         except RuntimeError as exc:
@@ -203,12 +204,14 @@ class OCRComponents:
             if not current["canInstall"]:
                 return current
             self.progress, self.error = "Подготавливаю установку…", ""
+            event("OCR", "Начата установка компонентов распознавания.")
             threading.Thread(target=self._run, name="quizlens-install-ocr", daemon=True).start()
             return self._result("installing", self.progress)
 
     def _set_progress(self, message):
         with self.lock:
             self.progress = message
+        event("OCR", message)
 
     def _run(self):
         message = "Не удалось завершить установку компонентов."
@@ -228,3 +231,8 @@ class OCRComponents:
             with self.lock:
                 self.error = message
                 self.progress = ""
+            if message:
+                event("OCR", "Установка прервана. Подробности доступны в разделе компонентов.",
+                      level="ВНИМАНИЕ")
+            else:
+                event("OCR", "Компоненты распознавания установлены.")

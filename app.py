@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import advisor
 import components
+from console_log import event
 import extension_package
 import engine
 import model_bench
@@ -115,8 +116,9 @@ class Corpus:
                 row = json.loads(path.read_text(encoding="utf-8"))
                 if row["id"] == path.stem and isinstance(row["sections"], list):
                     self.entries[row["id"]] = row
-            except (OSError, ValueError, KeyError, TypeError):
-                print("Не удалось прочитать сохранённый индекс", path.name, file=sys.stderr)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                event("Документы", "Не удалось прочитать сохранённый источник. Его можно добавить заново.",
+                      level="ВНИМАНИЕ", error=exc, repeat_after=60)
         for path in sorted((ROOT / "examples").glob("*")):
             if path.is_file() and recognized(path.name):
                 entry = self.add(path, bundled=path.name == "analytics-demo.quiz.json")
@@ -129,6 +131,39 @@ class Corpus:
     def list(self):
         with self.lock:
             return [self.description(row) for row in self.entries.values()]
+
+    def preview(self, key, page):
+        with self.lock:
+            row = self.entries.get(key)
+            if row is None:
+                raise ValueError("Документ уже удалён. Обнови список источников.")
+            page_size = 5
+            pages = max(1, (len(row["sections"]) + page_size - 1) // page_size)
+            if not 1 <= page <= pages:
+                raise ValueError("Такой страницы в документе нет.")
+            start = (page - 1) * page_size
+            sections = [{"location": s["location"], "text": s["text"]}
+                        for s in row["sections"][start:start + page_size]]
+            return {**self.description(row), "page": page, "pages": pages, "sections": sections}
+
+    def remove(self, key, forget_passages):
+        if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key):
+            raise ValueError("Выбери документ из списка источников.")
+        with self.lock:
+            if key in self.example_ids:
+                raise ValueError("Это встроенный пример. Сними отметку, чтобы исключить его из поиска.")
+            row = self.entries.get(key)
+            if row is None:
+                return False
+            removed = {s["text"] for s in row["sections"]}
+            for other_key, other in self.entries.items():
+                if other_key != key:
+                    removed.difference_update(s["text"] for s in other["sections"])
+            forget_passages(removed)
+            (self.folder / (key + ".json")).unlink(missing_ok=True)
+            del self.entries[key]
+            self.cache.clear()
+            return True
 
     def add(self, path, bundled=False):
         digest = hashlib.sha256(path.name.encode() + b"\0" + path.read_bytes()).hexdigest()
@@ -182,6 +217,14 @@ class Corpus:
 class QuizServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = sys.platform != "win32"
+
+    def handle_error(self, request, client_address):
+        # http.server can also encounter a closed peer before dispatch or during final flush.
+        error = sys.exc_info()[1]
+        if isinstance(error, OSError) and client_disconnected(error):
+            return
+        event("Сервер", "Ошибка обработки подключения. Для диагностики запусти с QUIZLENS_DEBUG=1.",
+              level="ОШИБКА", error=error, repeat_after=60)
 
     def server_bind(self):
         # HTTPServer resolves its advertised name via reverse DNS. This loopback-only app
@@ -284,6 +327,33 @@ class QuizServer(ThreadingHTTPServer):
         super().server_close()
 
 
+class ClientDisconnected(Exception):
+    """The client left while uploading its HTTP request."""
+
+
+def client_disconnected(error):
+    return (isinstance(error, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, socket.timeout))
+            or error.errno in {errno.EPIPE, errno.ECONNRESET, errno.ECONNABORTED, errno.ETIMEDOUT}
+            or getattr(error, "winerror", None) in {10053, 10054, 10060})
+
+
+def log_request_error(path, code, error):
+    if code == 404:
+        return
+    if path in {"/api/models", "/api/embedding-models", "/api/visual/models", "/api/advisor/benchmark"}:
+        area, hint = "Модель", "Проверь подключение к локальному серверу моделей."
+    elif path in {"/api/ocr", "/api/detect-layout", "/api/components/ocr", "/api/native/start"}:
+        area, hint = "Захват", "Открой проверку распознавания в приложении."
+    elif path in {"/api/import", "/api/lectures/delete", "/api/lectures/preview"}:
+        area, hint = "Документы", "Открой список источников и проверь сообщение приложения."
+    else:
+        area, hint = "Сервер", "Подробности доступны в окне приложения."
+    if code == 500:
+        hint = "Внутренняя ошибка. Для диагностики запусти с QUIZLENS_DEBUG=1."
+    event(area, f"Запрос завершился с кодом HTTP {code}. {hint}", error=error,
+          level="ОШИБКА" if code == 500 else "ВНИМАНИЕ", repeat_after=60)
+
+
 class Handler(BaseHTTPRequestHandler):
     def setup(self):
         super().setup()
@@ -292,9 +362,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def send(self, status, data, content_type="application/json; charset=utf-8"):
-        if not isinstance(data, bytes):
-            data = json.dumps(data, ensure_ascii=False).encode()
+    def send(self, status, data, content_type):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
@@ -318,11 +386,18 @@ class Handler(BaseHTTPRequestHandler):
                 or (self.headers.get("Sec-Fetch-Site") == "cross-site" and not landing)):
             raise PermissionError("Запрос разрешён только из локального окна QuizLens.")
 
-    def body(self, limit):
+    def body(self, limit, *, upload=False):
         size = int(self.headers.get("Content-Length", "-1"))
         if not 0 < size <= limit:
+            if upload and size > limit:
+                raise ValueError("Документ слишком большой. До 32 МиБ на файл.")
             raise ValueError("Слишком большой или пустой файл запроса.")
-        body = self.rfile.read(size)
+        try:
+            body = self.rfile.read(size)
+        except OSError as exc:
+            if client_disconnected(exc):
+                raise ClientDisconnected from exc
+            raise
         if len(body) != size:
             raise ValueError("Загрузка прервана. Выбери файл ещё раз.")
         return body
@@ -337,7 +412,7 @@ class Handler(BaseHTTPRequestHandler):
                 if (not name or len(name) > 200 or "/" in name or "\\" in name or
                         re.search(r"[\x00-\x1f]", name) or not recognized(name)):
                     raise ValueError("Выбери PDF, PPTX, IPYNB, TXT, MD или банк .quiz.json.")
-                raw = self.body(MAX_IMPORT)
+                raw = self.body(MAX_IMPORT, upload=True)
                 with tempfile.TemporaryDirectory(prefix="quizlens-") as tmp:
                     upload = Path(tmp) / name
                     upload.write_bytes(raw)
@@ -351,6 +426,10 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.body(byte_limit))
             if not isinstance(data, dict):
                 raise ValueError("Некорректный запрос приложения.")
+            if path == "/api/lectures/delete":
+                with self.server.preferences_lock:
+                    deleted = self.server.corpus.remove(data.get("id"), self.server.meaning.forget_passages)
+                    return {"deleted": deleted}
             if path == "/api/components/extension":
                 if data != {"action": "open-folder"}:
                     raise ValueError("Выбери действие открытия папки.")
@@ -430,6 +509,11 @@ class Handler(BaseHTTPRequestHandler):
             return model_advice()
         if path == "/api/lectures":
             return {"lectures": self.server.corpus.list()}
+        if path == "/api/lectures/preview":
+            page = query.get("page", ["1"])[0]
+            if not re.fullmatch(r"[1-9][0-9]{0,8}", page):
+                raise ValueError("Выбери страницу документа.")
+            return self.server.corpus.preview(query.get("id", [""])[0], int(page))
         if path == "/api/semantic":
             return {"model": self.server.embedding_model}
         if path == "/api/embedding-models":
@@ -460,15 +544,28 @@ class Handler(BaseHTTPRequestHandler):
         return (WEB_TYPES[Path(filename).suffix], (ROOT / "ui" / filename).read_bytes())
 
     def dispatch(self, write=False):
+        path = ""
+        code, content_type = 200, "application/json; charset=utf-8"
         try:
-            track = write and urlsplit(self.path).path != "/api/update" and hasattr(self.server, "updates")
+            path = urlsplit(self.path).path
+            track = write and path != "/api/update" and hasattr(self.server, "updates")
             with self.server.updates.work() if track else nullcontext():
                 result = self.route(write)
             if isinstance(result, tuple):
-                self.send(200, result[1], result[0])
-            else:
-                self.send(200, result)
-        except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                content_type, result = result
+            elif write:
+                if path == "/api/import":
+                    event("Документы", "Документ доступен в списке источников.")
+                elif path == "/api/lectures/delete" and result.get("deleted"):
+                    event("Документы", "Источник удалён.")
+                elif path == "/api/native/start":
+                    event("Захват", "Начато чтение окна средствами macOS.")
+                elif path == "/api/native/stop":
+                    event("Захват", "Чтение окна остановлено.")
+            if not isinstance(result, bytes):
+                result = json.dumps(result, ensure_ascii=False).encode()
+        except ClientDisconnected:
+            self.close_connection = True
             return
         except Exception as exc:
             if isinstance(exc, FileNotFoundError):
@@ -480,13 +577,18 @@ class Handler(BaseHTTPRequestHandler):
             elif isinstance(exc, RuntimeError):
                 code, message = 503, str(exc)
             else:
-                code, message = 500, "Ошибка QuizLens. Подробности в журнале приложения."
-                import traceback
-                traceback.print_exc()
-            try:
-                self.send(code, {"error": message})
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+                code, message = 500, "Внутренняя ошибка QuizLens. Подробности в окне запуска."
+            content_type = "application/json; charset=utf-8"
+            result = json.dumps({"error": message}, ensure_ascii=False).encode()
+            log_request_error(path, code, exc)
+        try:
+            self.send(code, result, content_type)
+        except OSError as exc:
+            # The response may already have headers or part of its body on the wire.
+            self.close_connection = True
+            if not client_disconnected(exc):
+                event("Сервер", "Не удалось передать ответ браузеру. Повтори действие.",
+                      level="ОШИБКА", error=exc, repeat_after=60)
 
     def do_GET(self):
         self.dispatch()
@@ -537,7 +639,7 @@ def main():
                     f"Для запуска QuizLens {VERSION} нажми Ctrl+C в окне Терминала предыдущего запуска "
                     "и снова открой приложение."
                 )
-            print(f"QuizLens {VERSION} уже работает · {url}", flush=True)
+            event("Сервер", f"QuizLens {VERSION} уже работает · {url}")
             if not args.no_browser:
                 open_ui(url)
             return
@@ -553,7 +655,8 @@ def main():
             try:
                 server.extension_folder.sync()
             except OSError as exc:
-                print(f"Не удалось обновить папку расширения: {exc}", file=sys.stderr)
+                event("Расширение", "Не удалось обновить файлы расширения. Открой его папку через QuizLens.",
+                      level="ВНИМАНИЕ", error=exc)
         server.corpus = Corpus(args.data_dir / "lectures")
         server.journal = Journal(args.data_dir)
         server.meaning = semantic.SemanticStore(args.data_dir, ENDPOINT)
@@ -571,7 +674,16 @@ def main():
         server.updates = updater.Updates(VERSION, server.shutdown, lambda: server.components.is_installing() or server.native.is_active())
         ocr.start_prewarm()
         url = f"http://127.0.0.1:{server.server_port}"
-        print(f"QuizLens {VERSION} · {url}", flush=True)
+        event("Сервер", f"QuizLens {VERSION} · {url}")
+        event("Сервер", "Оставь это окно открытым. Для остановки нажми Ctrl+C.")
+        if sys.platform == "win32":
+            def report_ocr():
+                status = server.components.snapshot()
+                if status["status"] == "ready":
+                    event("OCR", "Распознавание готово. Доступны русский и английский.")
+                else:
+                    event("OCR", "Проверь компоненты распознавания в QuizLens.", level="ВНИМАНИЕ")
+            threading.Thread(target=report_ocr, name="quizlens-ocr-status", daemon=True).start()
         if not args.no_browser:
             threading.Thread(target=open_ui, args=(url,), daemon=True).start()
         server.updates.ready(server.server_port)

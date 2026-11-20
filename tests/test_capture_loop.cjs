@@ -63,6 +63,9 @@ async function makeSession() {
   vm.runInContext(readFileSync(join(__dirname, '../ui/answer-proof.js'), 'utf8'), context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/reading-review.js'), 'utf8'), context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/chart-assist.js'), 'utf8'), context);
+  // The browser loads the source manager before capture. The fake document only
+  // models the capture panel; source editing is exercised in browser tests.
+  context.window.QuizSources = {render() {}};
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   vm.runInContext(`

@@ -1,14 +1,24 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LM Studio и локальная модель · QuizLens</title>
-  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/setup.css"><script src="/token-usage.js" defer></script><script src="/setup.js" defer></script>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/setup.css">
+  <link rel="stylesheet" href="/navigation.css">
+  <script src="/navigation.js" defer></script>
+  <script src="/token-usage.js" defer></script>
+  <script src="/setup.js" defer></script>
 </head>
 <body>
 <header class="top"><div class="bar">
   <a class="brand" href="/" aria-label="QuizLens, главная"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a>
-  <nav class="primary-nav" aria-label="Основные разделы"><a href="/">Захват</a><a href="/train">Тренировка</a><a href="/setup#connection" aria-current="page">LM Studio</a><a href="/journal">Журнал</a></nav>
+  <nav class="primary-nav" aria-label="Основные разделы">
+    <div class="nav-sections">
+      <a href="/">Захват</a><a href="/train">Тренировка</a><a href="/journal">Журнал</a>
+    </div>
+  </nav>
 </div></header>
 <main class="advisor">
   <h1 id="connection">LM Studio и локальная модель</h1>
