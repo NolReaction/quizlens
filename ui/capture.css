@@ -33,6 +33,15 @@
 .upload-row small {color:var(--sub); font-size:.84rem}
 .file-feedback:empty {display:none}
 #sessionView .file-feedback {overflow-wrap:anywhere}
+.model-knowledge-option {
+  margin-top:12px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:#111a21;
+}
+.model-knowledge-option:focus-within {border-color:var(--sky)}
+.model-knowledge-option label {display:flex; align-items:center; gap:9px; min-height:28px; font-size:.94rem; font-weight:600; cursor:pointer}
+.model-knowledge-option input {accent-color:var(--mint); flex:none; width:1.05rem; height:1.05rem; margin:0}
+.model-knowledge-option .hint {margin:4px 0 0 26px; line-height:1.4}
+.answer-body .answer-mode {color:#bcd0e6; font-size:.86rem; font-weight:600; margin-bottom:8px}
+.answer-body .answer-mode-action {align-self:flex-start; margin-top:12px}
 .document-heading {justify-content:space-between; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); flex-wrap:wrap; gap:4px}
 #materialSummary {color:var(--muted); font-size:.85rem}
 #sessionView .lecture-list {display:block; max-height:15rem; margin-top:4px}

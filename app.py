@@ -242,6 +242,18 @@ class QuizServer(ThreadingHTTPServer):
             raise ValueError("Нужны от 2 до 8 читаемых вариантов ответа.")
         if not isinstance(model, str) or len(model) > 500:
             raise ValueError("Проверь выбранную модель.")
+        without_documents = data.get("withoutDocuments", False)
+        if type(without_documents) is not bool:
+            raise ValueError("Проверь режим работы с документами.")
+        ids = data.get("lectureIds")
+        channel = data.get("channel", "")
+        if without_documents:
+            if channel not in ("browser", "native"):
+                raise ValueError("Режим без документов доступен при захвате квиза.")
+            if ids is not None and ids != []:
+                raise ValueError("Сними галочки с документов, чтобы включить ответ без источников.")
+            if not model.strip():
+                raise ValueError("Выбери локальную модель для ответа без документов.")
         mode = data.get("selectionMode", "auto")
         if mode not in ("auto", "single", "multiple"):
             raise ValueError("Выбери режим ответа.")
@@ -259,14 +271,16 @@ class QuizServer(ThreadingHTTPServer):
             hint["expectedCount"] = count
         question = q.strip()
         options = quiz_mode.clean_options([o.strip() for o in options])
-        ids = data.get("lectureIds")
+        mode, count = hint["selectionMode"], hint["expectedCount"]
+        if without_documents:
+            result = engine.solve_with_model_knowledge(question, options, model.strip(), base_url=ENDPOINT,
+                                                       selection_mode=mode, expected_count=count)
+            return {**hint, **result, "evidence": [], "source": "", "excerpt": ""}
         index = self.corpus.index(ids)
-        channel = data.get("channel", "")
         record = data.get("record") is True and channel in ("browser", "native")
         capture_ms = data.get("captureMs")
         if type(capture_ms) not in (int, float) or not 0 <= capture_ms <= 600000:
             capture_ms = None
-        mode, count = hint["selectionMode"], hint["expectedCount"]
         result = None
         journal_warning = ""
         if channel not in ("training", "check"):

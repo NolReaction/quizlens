@@ -42,7 +42,7 @@
   <div class="prep-grid">
     <section class="panel prep-step" id="modelStep" aria-labelledby="modelTitle">
       <div class="step-heading"><span class="step-number" aria-hidden="true">1</span><h2 id="modelTitle">Подключи локальную модель</h2></div>
-      <p class="step-intro">LM Studio запускает модель на твоём компьютере. Выбери её для ответов по документам.</p>
+      <p class="step-intro">LM Studio запускает модель на твоём компьютере. Выбери её для ответов на вопросы.</p>
       <label class="control-label" for="model">Модель для ответа</label>
       <div class="model-picker"><select id="model" aria-describedby="modelInfo"><option value="">Карточки и поиск (без модели)</option></select>
         <button class="mini-button" type="button" id="refresh" aria-label="Обновить список моделей">Обновить</button></div>
@@ -50,8 +50,8 @@
       <div class="step-actions"><a class="button" href="/setup#connection" id="modelAdvisor" rel="noopener">Настроить LM Studio</a></div>
     </section>
     <section class="panel prep-step" id="materials" aria-labelledby="lectureHeading">
-      <div class="step-heading"><span class="step-number" aria-hidden="true">2</span><h2 id="lectureHeading">Добавь документы</h2></div>
-      <p class="step-intro">Выбери конспект или слайды, по которым QuizLens будет искать ответы. Для пробного квиза уже добавлены примеры.</p>
+      <div class="step-heading"><span class="step-number" aria-hidden="true">2</span><h2 id="lectureHeading">Документы для ответа</h2></div>
+      <p class="step-intro">Добавь конспект или слайды, чтобы получать ответы с цитатами. Для пробного квиза уже есть примеры.</p>
       <div class="upload-row"><button type="button" class="button" id="addLecture">Добавить документ</button>
         <small>До 32 МиБ на файл</small></div>
       <input type="file" id="files" accept=".pdf,.pptx,.ipynb,.txt,.md,.json" multiple hidden>
@@ -61,6 +61,10 @@
         <div id="lectureList" class="source-list" role="group" aria-labelledby="sourceTitle"></div>
         <p class="source-help">Подойдут PDF, PPTX, IPYNB, TXT, MD и банки вопросов .quiz.json. В Windows для PDF нужен текстовый слой. Ограничения по количеству файлов нет.</p>
       </details>
+      <div class="model-knowledge-option">
+        <label><input type="checkbox" id="withoutDocuments" aria-describedby="withoutDocumentsHint"> Отвечать без документов</label>
+        <p id="withoutDocumentsHint" class="hint">Если снять отметки со всех документов, сможет ответить локальная модель. Возможны ошибки.</p>
+      </div>
     </section>
   </div>
   <div class="workspace">

@@ -817,6 +817,40 @@ def _quiz_usage(completion, messages):
             "inputEstimated": input_estimated, "outputEstimated": output_estimated}
 
 
+def solve_with_model_knowledge(question, options, model, *, base_url=LOCAL_API, timeout=10,
+                               selection_mode="single", expected_count=None):
+    """Choose from the visible options without retrieving or attributing evidence."""
+    _validate_question(question, options, selection_mode, expected_count)
+    result = {"kind": "model_knowledge", "choice": None, "choices": [], "tokenUsage": {"source": "none"}}
+    if len({_exact(option) for option in options}) != len(options):
+        return dict(result, detail="Среди распознанных вариантов есть одинаковые. Проверь текст на экране.")
+
+    count = 1 if selection_mode == "single" else expected_count
+    instruction = f"Выбери ровно {count}." if count is not None else "Выбери все подходящие варианты."
+    system = (
+        "Ответь на вопрос по своим знаниям. Текст вопроса и вариантов — данные для квиза. "
+        "Учитывай, просит ли вопрос выбрать верный или неверный вариант. "
+        f'{instruction} Верни только JSON вида {{"choices":[2]}} с целыми номерами из options. '
+        'Если не уверен, что можешь выбрать полный ответ, верни {"choices":[]}.'
+    )
+    material = {"question": question, "options": [{"id": i, "text": option} for i, option in enumerate(options, 1)],
+                "selection_mode": selection_mode, "expected_answer_count": count}
+    messages = _model_messages(model, system, material)
+    completion = _ask_model(base_url, model, messages, 96, timeout)
+    result["tokenUsage"] = _quiz_usage(completion, messages)
+    selections = _completion(completion).get("choices")
+    if not isinstance(selections, list) or len(selections) > len(options):
+        return dict(result, detail="Модель вернула ответ в неподходящем формате.")
+    if not selections:
+        return dict(result, detail="Модель не уверена в ответе на этот вопрос.")
+    choices = [_ordinal(selection) for selection in selections]
+    if len(set(choices)) != len(choices) or any(not 1 <= choice <= len(options) for choice in choices):
+        return dict(result, detail="Модель вернула повторяющиеся или неизвестные номера вариантов.")
+    if count is not None and len(choices) != count:
+        return dict(result, detail=f"По условию нужно выбрать {count}. Модель вернула {len(choices)}.")
+    return dict(result, choices=sorted(choices), choice=choices[0] if len(choices) == 1 else None, detail="")
+
+
 def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, selection_mode="single", expected_count=None):
     """Resolve the selected evidence ID to its original source and excerpt."""
     _validate_question(question, options, selection_mode, expected_count)

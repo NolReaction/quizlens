@@ -570,6 +570,123 @@ test('tab reading shows the text without sources and submits the same frame once
   assert.equal(port.lookups[0].question,initial[0]);
 });
 
+test('answering from model knowledge is opt-in and uses the recognized question without quotes or recording', async()=>{
+  const {api,node,port,flush}=await makeSession();
+  api.state.selected.clear();
+  node('model').value='qwen';
+  api.tabCapture.start();
+  api.tabCapture.read(initial);
+  assert.equal(node('withoutDocuments').checked,false);
+  assert.equal(port.lookups.length,0);
+
+  const panel=node('answer');
+  api.drawAnswer(panel,port.answers.at(-1));
+  const action=panel.children.find(item=>item.tagName==='button');
+  assert.equal(action.textContent,'Ответить без документов');
+  action.listeners.click();
+  assert.equal(node('withoutDocuments').checked,true);
+  assert.equal(port.lookups.length,1);
+  const request=port.lookups[0];
+  assert.equal(request.withoutDocuments,true);
+  assert.equal(request.model,'qwen');
+  assert.equal(request.question,initial[0]);
+  assert.deepEqual([...request.lectureIds],[]);
+  assert.equal(request.record,false);
+  assert.equal(request.captureTrace,undefined);
+  request.resolve({kind:'model_knowledge',choice:2,choices:[2],source:'Fake source',excerpt:'Fake quote',journalId:'fake'});
+  await flush();
+  const view=port.answers.at(-1);
+  assert.equal(view.title,initial[2]);
+  assert.equal(view.tag,'Вариант 2');
+  api.drawAnswer(panel,view);
+  assert.deepEqual(panel.children.map(item=>item.textContent),['Ответ модели · без источника','Вариант 2',initial[2]]);
+  assert.ok(panel.children.every(item=>item.tagName!=='a'));
+
+  node('withoutDocuments').checked=false;
+  node('withoutDocuments').listeners.change();
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+  api.state.selected.add('lecture');
+  api.applySettingsChange();
+  node('withoutDocuments').checked=true;
+  node('withoutDocuments').listeners.change();
+  assert.equal(port.lookups.length,2);
+  assert.equal(port.lookups[1].withoutDocuments,undefined);
+  assert.deepEqual([...port.lookups[1].lectureIds],['lecture']);
+});
+
+test('model knowledge needs a selected model and ignores answers delivered after opting out', async()=>{
+  const {api,node,port,flush}=await makeSession();
+  api.state.selected.clear();
+  api.tabCapture.start();
+  api.tabCapture.read(initial);
+  node('withoutDocuments').checked=true;
+  node('withoutDocuments').listeners.change();
+  assert.equal(port.lookups.length,0);
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+  assert.match(port.answers.at(-1).subtitle,/Выбери локальную модель/);
+
+  node('model').value='qwen';
+  node('model').listeners.change();
+  assert.equal(port.lookups.length,1);
+  node('withoutDocuments').checked=false;
+  node('withoutDocuments').listeners.change();
+  port.lookups[0].resolve({kind:'model_knowledge',choice:4,choices:[4]});
+  await flush();
+  assert.equal(port.answers.at(-1).title,'Текст распознан');
+  node('withoutDocuments').checked=true;
+  node('withoutDocuments').listeners.change();
+  assert.equal(port.lookups.length,2);
+});
+
+test('turning on model knowledge still waits for OCR agreement and critical-symbol checks', async()=>{
+  const {api,node,port,read}=await makeSession();
+  api.state.selected.clear();
+  node('model').value='qwen';
+  read(initial);read(initial);
+  const current=['Как называется водоём?','Океан','Залив','Река','Озеро'];
+  read(current);
+  node('withoutDocuments').checked=true;
+  node('withoutDocuments').listeners.change();
+  assert.equal(port.lookups.length,0);
+  read(current);
+  assert.equal(port.lookups[0].question,current[0]);
+
+  read(current,null,{readingWarnings:[{field:2,readings:['Залив','Заливы']}]});
+  for (const enabled of [false,true]) {
+    node('withoutDocuments').checked=enabled;
+    node('withoutDocuments').listeners.change();
+  }
+  assert.equal(port.lookups.length,1);
+  assert.equal(port.answers.at(-1).title,'Сверь распознанный текст');
+});
+
+test('model knowledge validates the full set of choices and displays multiple answers without evidence', async()=>{
+  const {api,node,port,flush}=await makeSession();
+  api.state.selected.clear();
+  node('model').value='qwen';
+  node('withoutDocuments').checked=true;
+  node('withoutDocuments').listeners.change();
+  api.tabCapture.start();
+  const mode={selectionMode:'multiple',expectedCount:2};
+  api.tabCapture.read(initial,mode);
+  assert.equal(port.lookups[0].selectionMode,'multiple');
+  assert.equal(port.lookups[0].expectedCount,2);
+  port.lookups[0].resolve({kind:'model_knowledge',choices:[2,2],source:'Fake source',excerpt:'Fake quote'});
+  await flush();
+  assert.equal(port.answers.at(-1).title,'Модель не выбрала ответ');
+  assert.equal(port.answers.at(-1).source,undefined);
+  assert.equal(port.answers.at(-1).selections,undefined);
+
+  const next=['Какие утверждения верны?',...initial.slice(1)];
+  api.tabCapture.read(next,mode);
+  port.lookups[1].resolve({kind:'model_knowledge',choices:[3,1],evidence:[{choice:3,source:'Fake source',excerpt:'Fake quote'}]});
+  await flush();
+  const panel=node('answer');
+  api.drawAnswer(panel,port.answers.at(-1));
+  assert.deepEqual(panel.children.map(item=>item.textContent),['Ответ модели · без источника','Отметь 1 и 3','1. x²','3. 10 %']);
+  assert.ok(panel.children.every(item=>item.tagName!=='details'));
+});
+
 test('one focus box crops the search, maps detector coordinates back, and resets on aspect change',async()=>{
   const {api,node,port,flush}=await makeSession();
   await node('share').listeners.click();

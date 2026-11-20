@@ -10,6 +10,15 @@ OPTIONS = ("Термометр", "Линейка", "Часы", "Компас")
 REGIONS = [(55, 63, 935, 133), *[(605, y, 938, y + 86) for y in (158, 266, 374, 482)]]
 
 
+def uncheck_sources(page):
+    page.locator("#sourceManager > summary").click()
+    sources = page.locator('#lectureList input[type="checkbox"]')
+    expect(sources.first).to_be_checked()
+    for source in sources.all():
+        source.uncheck()
+    expect(page.locator("#lectureList input:checked")).to_have_count(0)
+
+
 def setup_canvas_source(page):
     # Replace only the system picker. Live video, the canvas crops and the OCR request are real.
     page.evaluate("""({width, height, question, options, regions}) => {
@@ -64,12 +73,7 @@ def check_manual_window(browser, url, directory):
     page.on("request", record_solve)
     try:
         page.goto(url)
-        page.locator("#sourceManager > summary").click()
-        sources = page.locator('#lectureList input[type="checkbox"]')
-        expect(sources.first).to_be_checked()
-        for source in sources.all():
-            source.uncheck()
-        expect(page.locator("#lectureList input:checked")).to_have_count(0)
+        uncheck_sources(page)
 
         setup_canvas_source(page)
         page.locator("#share").click()

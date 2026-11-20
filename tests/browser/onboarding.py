@@ -13,6 +13,7 @@ import tempfile
 
 from playwright.sync_api import expect, sync_playwright
 
+from general_answers import check_general_answers, local_model
 from local_updates import check_local_updates
 from manual_window import check_manual_window
 
@@ -21,12 +22,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @contextmanager
-def app_server():
+def app_server(model_url="http://127.0.0.1:1/v1"):
     with tempfile.TemporaryDirectory(prefix="quizlens-onboarding-") as directory:
         server = subprocess.Popen(
             [sys.executable, "-u", "app.py", "--no-browser", "--port", "0", "--data-dir", directory],
             cwd=ROOT, stdout=subprocess.PIPE, text=True, encoding="utf-8",
-            env={**os.environ, "QUIZ_LENS_LM_URL": "http://127.0.0.1:1/v1", "PYTHONUTF8": "1"},
+            env={**os.environ, "QUIZ_LENS_LM_URL": model_url, "PYTHONUTF8": "1"},
         )
         try:
             line = server.stdout.readline()
@@ -389,5 +390,7 @@ if __name__ == "__main__":
             check_manual_window(browser, origin, args.screenshots)
             for viewport in [(1280, 720), (390, 844)]:
                 check_first_run(browser, origin, *viewport, args.screenshots)
+            with local_model() as (model_url, calls), app_server(model_url) as model_origin:
+                check_general_answers(browser, model_origin, calls, args.screenshots)
         finally:
             browser.close()

@@ -8,6 +8,7 @@ const sameAspect = (current, saved) => Number.isFinite(current) && Number.isFini
   current > 0 && saved > 0 && Math.abs(current/saved-1) <= .04;
 const storageKey = 'quizlens.settings.v1';
 const answerCache = new Map();
+const knowledgeLabel = 'Ответ модели · без источника';
 let checkingModels = false;
 let modelPreferenceChanged = false;
 let modelNames = [];
@@ -19,7 +20,7 @@ const state = {
   previousReading:null, warningKey:null, readingReview:null,
   running:false, session:0, signature:null, dirtyFrame:false, lastRead:-Infinity,
   ocrJob:null, solveJob:null, currentKey:null, candidateKey:null, pendingSince:null, displayedKey:null,
-  captureTrace:[], candidateSeenAt:null, firstSeenAt:null, confirmedTexts:null, captureIssue:null,
+  captureTrace:[], candidateSeenAt:null, firstSeenAt:null, confirmedFrame:null, captureIssue:null,
   retryOcrAt:0, retrySolveAt:0, response:null, pip:null, timer:null
 };
 
@@ -66,10 +67,23 @@ function drawWarningImage(figure, warning) {
 function drawAnswer(container, info) {
   container.replaceChildren();
   container.className = 'answer-body'+(info.unclear ? ' unclear':'');
+  if (info.knowledge) addText(container, 'answer-mode', knowledgeLabel);
   addText(container, 'answer-tag', info.tag);
   addText(container, 'answer-title', info.title);
   addText(container, 'answer-text', info.subtitle);
   addText(container, info.tentative ? 'answer-text problem-text' : 'answer-text', info.note);
+  if (info.enableKnowledge) {
+    const button = container.ownerDocument.createElement('button');
+    button.className = 'button answer-mode-action';
+    button.type = 'button';
+    button.textContent = 'Ответить без документов';
+    button.addEventListener('click', () => {
+      if (state.response !== info || el('withoutDocuments').checked) return;
+      el('withoutDocuments').checked = true;
+      changeWithoutDocuments();
+    });
+    container.append(button);
+  }
   for (const warning of info.readingWarnings || []) {
     const figure = container.ownerDocument.createElement('figure');
     figure.className = 'reading-warning';
@@ -84,6 +98,8 @@ function drawAnswer(container, info) {
   if (info.reviewEditor) window.addQuizReadingEditor(container, info.reviewEditor.texts, info.readingWarnings, info.reviewEditor.confirm);
   if (info.selections) {
     for (const item of info.selections) addText(container, 'answer-text', item.choice + '. ' + item.text);
+  }
+  if (info.selections && !info.knowledge) {
     const details = container.ownerDocument.createElement('details');
     const summary = container.ownerDocument.createElement('summary');
     details.open = true;
@@ -95,9 +111,11 @@ function drawAnswer(container, info) {
     }
     container.append(details);
   }
-  addText(container, 'answer-source', info.source);
-  addText(container, 'answer-excerpt', info.excerpt);
-  if (info.journalId) {
+  if (!info.knowledge) {
+    addText(container, 'answer-source', info.source);
+    addText(container, 'answer-excerpt', info.excerpt);
+  }
+  if (info.journalId && !info.knowledge) {
     const link = container.ownerDocument.createElement('a');
     link.href = '/journal#' + encodeURIComponent(info.journalId);
     link.target = '_blank';
@@ -132,7 +150,15 @@ function showTexts(texts) {
   });
   box.append(list);
 }
-function idleAnswer() { answer({title:'Жду вопрос', subtitle:'Здесь появятся ответ и цитата из отмеченного документа.'}); }
+function idleAnswer() { answer({title:'Жду вопрос', subtitle:'Здесь появится ответ на распознанный вопрос.'}); }
+function showKnowledgeStatus() {
+  const hint = el('withoutDocumentsHint');
+  const message = state.selected.size ? 'Чтобы модель отвечала без источников, сними отметки со всех документов.'
+    : !el('model').value ? 'Для этого режима выбери локальную модель в первом разделе.'
+    : el('withoutDocuments').checked ? 'Локальная модель ответит по своим знаниям. Возможны ошибки.'
+    : 'Включи режим, чтобы локальная модель отвечала по своим знаниям.';
+  if (hint.textContent !== message) hint.textContent = message;
+}
 function controls() {
   const sharing = Boolean(state.stream);
   const auto = state.layoutMode === 'auto';
@@ -147,6 +173,7 @@ function controls() {
   el('share').classList.toggle('primary', !sharing);
   el('sessionView').classList.toggle('reading', state.running);
   el('materialSummary').textContent = 'Отмечено '+state.selected.size+' из '+state.lectures.length;
+  showKnowledgeStatus();
   el('release').hidden = !sharing;
   el('autoLayout').hidden = !sharing || (auto && !state.autoFocus);
   el('autoLayout').textContent = auto ? 'Искать во всём окне' : 'Вернуть авторазметку';
@@ -175,7 +202,7 @@ el('record').addEventListener('change', () => {
 });
 
 el('visual').addEventListener('click', event => {
-  const fields = state.candidateKey === null && state.confirmedTexts ? state.confirmedTexts.slice() : [];
+  const fields = state.candidateKey === null && state.confirmedFrame ? state.confirmedFrame.texts.slice() : [];
   const live = Boolean(state.stream && preview.readyState >= 2);
   if (!live && !(state.tabReading && fields.length)) return;
   event.preventDefault();
@@ -194,6 +221,27 @@ function applySettingsChange() {
   if (state.running) start();
   else controls();
 }
+
+function changeWithoutDocuments() {
+  remember('withoutDocuments', el('withoutDocuments').checked);
+  showKnowledgeStatus();
+  if (state.selected.size || !state.running) return;
+  state.solveJob?.controller.abort();state.solveJob=null;
+  state.displayedKey=null;state.retrySolveAt=0;
+  const frame = state.confirmedFrame;
+  if (state.candidateKey !== null) {
+    if (!state.warningKey && state.response?.knowledge) {
+      answer({title:'Проверяю текущий кадр…'});status('Распознаю','active');
+    }
+    return;
+  }
+  if (frame && state.currentKey && !state.warningKey && frame.selection.selectionMode!=='unknown') {
+    answerFrame(frame.texts,state.currentKey,state.session,frame.selection);
+  }
+}
+
+el('withoutDocuments').checked = settings().withoutDocuments === true;
+el('withoutDocuments').addEventListener('change', changeWithoutDocuments);
 
 let lectureListVersion = 0;
 
@@ -274,6 +322,7 @@ function showModelStatus() {
   } else {
     hint.textContent = 'Включены карточки и поиск. Для ответов модели выбери её в списке.';
   }
+  showKnowledgeStatus();
 }
 
 async function loadModels() {
@@ -641,7 +690,7 @@ function clearWorkflow() {
   state.ocrJob?.controller.abort();state.ocrJob=null;
   state.solveJob?.controller.abort();state.solveJob=null;
   state.currentKey=null;state.candidateKey=null;state.pendingSince=null;state.displayedKey=null;
-  state.captureTrace=[];state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedTexts=null;state.captureIssue=null;
+  state.captureTrace=[];state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedFrame=null;state.captureIssue=null;
   state.retryOcrAt=0;state.retrySolveAt=0;state.signature=null;state.dirtyFrame=false;state.lastRead=-Infinity;
 }
 function stop(reason='') {
@@ -715,6 +764,7 @@ function selectionForFrame(hint,optionCount) {
   return {selectionMode:'single',expectedCount:1};
 }
 function answerForResult(result, options, selection) {
+  if (result.kind==='model_knowledge') return {title:'Ответ недоступен',subtitle:'Сервер вернул ответ в другом режиме.',unclear:true};
   const journal = {journalId:result.journalId,journalWarning:result.journalWarning,tokenUsage:result.tokenUsage};
   if (selection.selectionMode==='multiple') {
     const choices=result.choices;
@@ -735,10 +785,29 @@ function answerForResult(result, options, selection) {
   }
   return {...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Сверь ответ с найденным фрагментом документа.',source:result.source,excerpt:result.excerpt,unclear:true};
 }
+function answerForKnowledge(result, options, selection) {
+  const mode={knowledge:true,tokenUsage:result.tokenUsage};
+  const choices=result.choices;
+  if (result.kind!=='model_knowledge' || !Array.isArray(choices)) {
+    return {...mode,title:'Ответ недоступен',subtitle:'Сверь текст и формат вопроса.',unclear:true};
+  }
+  if (!choices.length ||
+      new Set(choices).size!==choices.length || (selection.expectedCount && choices.length!==selection.expectedCount) ||
+      choices.some(index=>!Number.isInteger(index) || index<1 || index>options.length) ||
+      (selection.selectionMode==='single' && (choices.length!==1 || choices[0]!==result.choice))) {
+    return {...mode,title:'Модель не выбрала ответ',subtitle:'Проверь формулировку или добавь документ по теме.',unclear:true};
+  }
+  if (selection.selectionMode==='single') {
+    return {...mode,tag:'Вариант '+result.choice,title:options[result.choice-1]};
+  }
+  const selections=[...choices].sort((a,b)=>a-b).map(index=>({choice:index,text:options[index-1]}));
+  const numbers=new Intl.ListFormat('ru',{type:'conjunction'}).format(selections.map(item=>String(item.choice)));
+  return {...mode,title:'Отметь '+numbers,selections};
+}
 function displayResult(view) {
   state.displayedKey=state.currentKey;
   answer(view);
-  if(view.unclear) status('Проверь источник','problem');
+  if(view.unclear) status(view.knowledge?'Нет ответа':'Проверь источник','problem');
   else if(view.tentative) status('Сверь расчёт','problem');
   else status('Ответ готов','active');
 }
@@ -748,37 +817,47 @@ function cacheResult(key, result) {
 }
 async function solve(texts,key,session,selection) {
   if(state.displayedKey===key) return;
-  if(!state.selected.size) {
+  const model=el('model').value;
+  const requestedKnowledge=!state.selected.size && el('withoutDocuments').checked;
+  const withoutDocuments=Boolean(requestedKnowledge && model);
+  if(!state.selected.size && !withoutDocuments) {
     state.displayedKey=key;
-    answer({title:'Текст распознан',subtitle:'Добавь или отметь документ в разделе «Добавь документы», чтобы искать ответ.'});
+    answer({title:'Текст распознан',enableKnowledge:Boolean(model),subtitle:model
+      ? 'Отметь документ для ответа с цитатой или попроси локальную модель ответить по своим знаниям.'
+      : 'Выбери локальную модель для ответа без документов или отметь документ для поиска.'});
     status('Текст распознан','active');
     return;
   }
   const options=texts.slice(1);
-  const cached=answerCache.get(key);
+  const cacheKey=withoutDocuments ? 'knowledge:'+key : key;
+  const formatResult=withoutDocuments ? answerForKnowledge : answerForResult;
+  const cached=answerCache.get(cacheKey);
   if(cached) {
-    displayResult(answerForResult({...cached, tokenUsage:{source:'cache'}},options,selection));
+    displayResult(formatResult({...cached, tokenUsage:{source:'cache'}},options,selection));
     return;
   }
   if(state.solveJob?.key===key || performance.now()<state.retrySolveAt) return;
   state.solveJob?.controller.abort();
   const job={key,controller:new AbortController()};state.solveJob=job;
-  answer({title:'Ищу в документах…'});status('Ищу ответ','active');
+  answer(withoutDocuments ? {title:'Спрашиваю локальную модель…',knowledge:true} : {title:'Ищу в документах…'});
+  status(withoutDocuments?'Модель отвечает':'Ищу ответ','active');
   try {
-    const params={question:texts[0],options,...selection,model:el('model').value,lectureIds:[...state.selected],
-      record:el('record').checked,channel:'browser'};
+    const params={question:texts[0],options,...selection,model,lectureIds:[...state.selected],
+      record:!withoutDocuments && el('record').checked,channel:'browser'};
+    if (withoutDocuments) params.withoutDocuments=true;
     const requestAt=performance.now();
     if (state.firstSeenAt!==null) params.captureMs=Math.round(Math.max(0,requestAt-state.firstSeenAt));
     if (params.record && !state.tabReading) params.captureTrace=traceForRequest(requestAt);
     const result=await postJson('/api/solve',params,job.controller.signal);
     if(state.session!==session || job.controller.signal.aborted) return;
-    const view=answerForResult(result,options,selection);
-    if(!view.unclear && !view.tentative) cacheResult(key,result);
+    const view=formatResult(result,options,selection);
+    if(!view.unclear && !view.tentative) cacheResult(cacheKey,result);
     if(state.currentKey===key && state.candidateKey===null) displayResult(view);
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;
     if(state.currentKey===key && state.candidateKey===null) {
-      answer({title:'Ответ недоступен',subtitle:error.message,unclear:true});status('Ошибка поиска','problem');
+      answer({title:'Ответ недоступен',subtitle:error.message,knowledge:withoutDocuments,unclear:true});
+      status(withoutDocuments?'Ошибка модели':'Ошибка поиска','problem');
       state.retrySolveAt=performance.now()+3000;
     }
   } finally { if(state.solveJob===job) state.solveJob=null; }
@@ -862,7 +941,7 @@ async function rowFromFrame(frame, field) {
 function reviewReading(texts, warnings, frame, review=null) {
   // Do not publish an answer based on (or cached before) the unresolved pixels.
   state.solveJob?.controller.abort();state.solveJob=null;
-  state.currentKey=null;state.displayedKey=null;state.confirmedTexts=null;state.firstSeenAt=null;
+  state.currentKey=null;state.displayedKey=null;state.confirmedFrame=null;state.firstSeenAt=null;
   window.QuizChart?.show(null);
   const editable = review?.repeated && validFields(texts.length) && texts.every(Boolean);
   const key=JSON.stringify([texts,warnings.map(w=>[w.field,w.readings]), Boolean(editable), review?.identity]);
@@ -899,6 +978,16 @@ function reviewReading(texts, warnings, frame, review=null) {
   }).catch(()=>{}); // The alternatives remain visible if the image cannot be decoded.
 }
 
+function answerFrame(texts,key,session,selection) {
+  const chart=window.QuizChart?.show(texts[0],selection.selectionMode);
+  if (!chart) {
+    solve(texts,key,session,selection);
+  } else if (state.displayedKey!==key) {
+    answer({title:'Нужны данные с изображения',subtitle:'Открой разбор, чтобы сверить значения и подписи.',unclear:true});
+    status('Нужен рисунок','active');state.displayedKey=key;
+  }
+}
+
 function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.now(),frame=null) {
   if (session!==state.session) return;
   if(!Array.isArray(raw) || (raw.length!==0 && !validFields(raw.length))) throw new Error('OCR вернул некорректное число областей.');
@@ -927,7 +1016,7 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
     if (prior?.corrected) {
       state.solveJob?.controller.abort();state.solveJob=null;
       state.previousReading=null;state.currentKey=null;state.displayedKey=null;
-      state.warningKey=null;state.confirmedTexts=null;
+      state.warningKey=null;state.confirmedFrame=null;
     }
   }
   const compared=Array.isArray(comparisonTexts) && comparisonTexts.length===raw.length && comparisonTexts.every(s=>typeof s==='string')
@@ -968,7 +1057,7 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
     // Two consecutive OCR reads now agree on the replacement (or on an incomplete frame).
     state.solveJob?.controller.abort();state.solveJob=null;
     state.currentKey=key;state.displayedKey=null;state.retrySolveAt=0;
-    state.firstSeenAt=complete ? seenAt : null;state.confirmedTexts=complete ? texts : null;
+    state.firstSeenAt=complete ? seenAt : null;state.confirmedFrame=complete ? {texts,selection} : null;
     showTexts(texts);
     if (!complete && !state.tabReading) {
       if(state.layoutMode==='auto') {
@@ -987,15 +1076,7 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
     }
   }
   if (complete && selection.selectionMode!=='unknown') {
-    const chart=window.QuizChart?.show(texts[0],selection.selectionMode);
-    if (chart) {
-      if (state.displayedKey!==key) {
-        answer({title:'Нужны данные с изображения',subtitle:'Открой разбор, чтобы сверить значения и подписи.',unclear:true});
-        status('Нужен рисунок','active');state.displayedKey=key;
-      }
-      return;
-    }
-    solve(texts,key,session,selection);
+    answerFrame(texts,key,session,selection);
   } else {
     if (state.tabReading && !complete) {
       const notice = Object.hasOwn(tabReaderNotices,hint.reason) ? tabReaderNotices[hint.reason] : tabReaderNotices.waiting;
@@ -1064,7 +1145,7 @@ async function recognize(session) {
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;
     state.currentKey=null;state.candidateKey=null;state.pendingSince=null;state.displayedKey=null;
-    state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedTexts=null;
+    state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedFrame=null;
     state.warningKey=null;state.previousReading=null;state.readingReview=null;window.QuizChart?.show(null);
     state.solveJob?.controller.abort();state.solveJob=null;
     state.retryOcrAt=performance.now()+1900;
@@ -1084,7 +1165,7 @@ function tick() {
     }
     // During a prolonged transition an old answer must not remain on screen.
     if(state.currentKey && state.pendingSince!==null && now-state.pendingSince>=1400) {
-      state.currentKey=null;state.displayedKey=null;state.confirmedTexts=null;
+      state.currentKey=null;state.displayedKey=null;state.confirmedFrame=null;
       state.solveJob?.controller.abort();state.solveJob=null;
       showTexts(null);answer({title:'Проверяю новый кадр…'});status('Распознаю','active');
     }
