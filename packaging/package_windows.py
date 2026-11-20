@@ -9,7 +9,7 @@ import zipfile
 SOURCE = Path(__file__).resolve().parents[1]
 SAMPLES = ("analytics-demo.txt", "analytics-demo.quiz.json", "ocr-warmup.png", "QuizLens-demo.ipynb")
 MODULES = ("app", "advisor", "model_bench", "auto_layout", "engine", "journal", "native_mode", "ocr",
-           "numeric_evidence", "ocr_terms", "ocr_layout", "quiz_mode", "semantic", "training", "visual")
+           "numeric_evidence", "ocr_terms", "ocr_review", "ocr_layout", "quiz_mode", "semantic", "training", "visual")
 
 
 def package(source, target):
@@ -25,6 +25,11 @@ def package(source, target):
     repository = source / "packaging/REPOSITORY"
     if repository.is_file():
         inputs["app/packaging/REPOSITORY"] = repository
+    extension = source / "browser-extension"
+    inputs["browser-extension/manifest.json"] = extension / "manifest.json"
+    for file in extension.iterdir():
+        if file.is_file() and file.suffix in {".html", ".css", ".js", ".png"}:
+            inputs["browser-extension/" + file.name] = file
     for name in MODULES:
         inputs[f"app/{name}.py"] = source / (name + ".py")
     for file in (source / "ui").iterdir():

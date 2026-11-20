@@ -36,6 +36,7 @@ async function makeSession() {
     addEventListener(name, fn) { this.listeners ??= {}; this.listeners[name] = fn; },
     getContext() {}, querySelector() { return this; }, play: async () => {}, close() { this.open=false; },
     replaceChildren() { this.children = []; },
+    setAttribute(name,value) { (this.attributes ??= {})[name]=value; },
     append(...items) { (this.children ??= []).push(...items); }, add() {}, classList: { toggle() {} }, value: 'qwen',
   };
   const elements = new Map();
@@ -60,6 +61,7 @@ async function makeSession() {
   });
   vm.runInContext(readFileSync(join(__dirname, '../ui/token-usage.js'), 'utf8'), context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/answer-proof.js'), 'utf8'), context);
+  vm.runInContext(readFileSync(join(__dirname, '../ui/chart-assist.js'), 'utf8'), context);
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   vm.runInContext(`
@@ -72,7 +74,7 @@ async function makeSession() {
     postJson=request;
     answer=info=>{state.response=info;port.answers.push(info);};
     showTexts=()=>{};status=()=>{};
-    globalThis.testApi={tick,differs,acceptTexts,clearWorkflow,start,stop,applySettingsChange,searchPixels,state,drawAnswer};
+    globalThis.testApi={tick,differs,acceptTexts,clearWorkflow,start,stop,applySettingsChange,searchPixels,state,drawAnswer,tabCapture:window.quizLensTabCapture};
   `, context);
   const api = context.testApi;
   const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -507,4 +509,103 @@ test('journal trace preserves distinct recent recognized texts, and respects dis
   read(['Другой вопрос?',...expected.slice(1)]);port.now=1200;read(['Другой вопрос?',...expected.slice(1)]);
   assert.equal(port.lookups[1].record,false);
   assert.equal('captureTrace' in port.lookups[1],false);
+});
+
+test('uncertain OCR never uses a previous lookup or cached answer until two fresh clean observations', async()=>{
+  const {port,api,node,read,finish}=await makeSession();
+  const texts=['Как изменилась доля?', '0,5%', '5%', '10%'];
+  read(texts);read(texts);
+  const previous=port.lookups[0];
+  const image='data:image/png;base64,QQ==';
+  const questionable={readingWarnings:[{field:1,readings:['0,5%','5%'],image}]};
+  read(texts,null,questionable);
+  assert.equal(port.answers.at(-1).title,'Сверь распознанный текст');
+  await finish(previous,1);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  api.drawAnswer(node('answer'),port.answers.at(-1));
+  const warning=node('answer').children.find(c=>c.attributes?.['data-reading-warning']==='1');
+  assert.match(warning.children[0].textContent,/Вариант 1.*0,5%.*5%/);
+  assert.equal(warning.children[1].src,image);
+  read(texts,null,questionable);read(texts);
+  assert.equal(port.lookups.length,1);
+  read(texts);
+  assert.equal(port.lookups.length,2);
+  await finish(port.lookups[1],1);
+  read(texts,null,questionable);read(texts,null,questionable);
+  assert.equal(port.answers.at(-1).title,'Сверь распознанный текст','ambiguity cannot reuse a cached answer');
+  read(texts);read(texts);
+  assert.equal(port.answers.at(-1).title,'0,5%');
+  assert.equal(port.answers.at(-1).tokenUsage.source,'cache');
+});
+
+test('a changing comma or negation withdraws the previous answer immediately and never combines rows', async()=>{
+  const {port,read,finish}=await makeSession();
+  const first=['Какое утверждение верно?', '0,5%','7%'];
+  const second=[first[0], '5%',first[2]];
+  const third=['Какое утверждение не верно?', ...second.slice(1)];
+  read(first);read(first);await finish(port.lookups[0],1);
+  read(second);
+  assert.equal(port.answers.at(-1).readingWarnings[0].field,1);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  read(first);read(second);
+  assert.equal(port.lookups.length,1);
+  read(second);assert.equal(port.lookups.length,2);
+  read(third);
+  assert.equal(port.answers.at(-1).readingWarnings[0].field,0);
+  await finish(port.lookups[1],1);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  read(third);
+  assert.deepEqual([port.lookups[2].question,...port.lookups[2].options],third);
+});
+
+test('direct tab snapshots solve immediately and later OCR or tab jobs cannot replace them', async()=>{
+  const {port,api,read,finish}=await makeSession();
+  read(initial);read(initial);const prior=port.lookups[0];
+  const tab=api.tabCapture;
+  tab.start();
+  assert.equal(api.state.stream,null);
+  tab.read(['Какой формат?','JSON','TXT'],{selectionMode:'single'});
+  assert.equal(port.lookups.length,2);
+  await finish(prior,1);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  await finish(port.lookups[1],1);
+  assert.equal(port.answers.at(-1).title,'JSON');
+  tab.read(['Какой формат?','JSON','TXT'],{selectionMode:'single'});
+  assert.equal(port.lookups.length,2);
+  tab.read(['Какой формат?','TXT','JSON'],{selectionMode:'single'});
+  assert.equal(port.lookups.length,3);
+  tab.read([]);await finish(port.lookups[2],2);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  tab.read(['Что выбрать?','А','Б'],{selectionMode:'multiple'});
+  assert.equal(port.lookups.at(-1).selectionMode,'multiple');
+  tab.stop();await finish(port.lookups.at(-1),2);
+  assert.equal(api.state.running,false);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  assert.equal(api.state.tabFrame,null);
+});
+
+test('spacing around percent keeps one stable reading while the current display text is preserved',async()=>{
+  const {port,read,finish}=await makeSession();
+  const texts=['Какова доля?', '0,5%', '5%', '10%'];
+  const spaced=[texts[0],'0,5 %','5 %','10 %'];
+  read(texts);read(spaced);
+  assert.equal(port.lookups.length,1);
+  assert.equal(port.lookups[0].options[0],'0,5 %');
+  await finish(port.lookups[0],1);
+  read(texts);read(spaced);
+  assert.equal(port.lookups.length,1);
+  assert.equal(port.answers.at(-1).tag,'Вариант 1');
+});
+
+
+test('a chart-dependent question offers its image; a subsequent text question resumes ordinary lookup', async () => {
+  const {port, read, node} = await makeSession();
+  const chart = ['Какое значение показано на графике?', '5', '15', '25'];
+  read(chart); read(chart);
+  assert.equal(port.lookups.length, 0);
+  assert.equal(node('visualPrompt').hidden, false);
+  assert.match(node('visual').textContent, /рисунок/);
+  read(initial); read(initial);
+  assert.equal(port.lookups.length, 1);
+  assert.equal(node('visualPrompt').hidden, true);
 });

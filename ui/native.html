@@ -9,6 +9,7 @@
   <script defer src="/visual-transfer.js"></script>
   <script defer src="/token-usage.js"></script>
   <script defer src="/answer-proof.js"></script>
+  <script defer src="/chart-assist.js"></script>
   <script defer src="/native.js"></script>
 </head>
 <body>
@@ -68,11 +69,13 @@
     <div class="section-head"><h2>Ответ</h2><div class="capture-controls"><button type="button" class="button" id="manual-live" hidden>Разметить вручную</button><button type="button" class="button" id="stop">Остановить</button></div></div>
     <div id="live-content" aria-live="polite" aria-atomic="true">
       <div id="answer" class="native-answer"></div>
+      <div id="reading-warnings" hidden></div>
       <p id="answer-proof" hidden></p>
       <p id="state" class="hint"></p>
       <div id="evidence"></div>
     </div>
     <div class="result-tools"><a id="review" class="subtle" href="/journal" target="_blank" rel="noopener" hidden>Разобрать ответ ↗</a>
+      <p id="visualPrompt" class="hint" hidden></p>
       <a id="visual" class="subtle" href="/visual" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
     <section class="native-transcript"><h2>Распознанный текст</h2><p id="current-question"></p><ol id="options"></ol></section>
   </section>

@@ -29,7 +29,6 @@ import quiz_mode
 import semantic
 import training
 import visual
-from auto_layout import assess_layout
 from journal import Journal
 from native_mode import NativeMode
 
@@ -359,11 +358,8 @@ class Handler(BaseHTTPRequestHandler):
             if image_request:
                 index = self.server.corpus.index(data["lectureIds"]) if data.get("lectureIds") else None
                 vocabulary = index.ocr_vocabulary if index is not None and sys.platform != "darwin" else None
-                if path == "/api/detect-layout":
-                    parts, aspect = ocr.layout_observations(data.get("image"), vocabulary)
-                    result = assess_layout(parts, aspect=aspect)
-                else:
-                    result = {"texts": ocr.recognize(data.get("image"), data.get("regions"), vocabulary)}
+                result = ocr.reviewed_capture(data.get("image"), data.get("regions") if path == "/api/ocr" else None,
+                                              vocabulary, auto=path == "/api/detect-layout")
                 if "selectionMode" not in result and result["texts"]:
                     question, *options = result["texts"]
                     result.update(quiz_mode.selection_hint(question, options))

@@ -89,6 +89,42 @@ class VisualTests(unittest.TestCase):
         self.server.answer["options"][1] = "Август"
         self.assertEqual(self.solve()["choices"], [])
 
+    def test_two_period_arithmetic_uses_labelled_values_and_current_answer_order(self):
+        opts = ["300 %", "200 %", "67 %", "36 %"]
+        q = "По графику на сколько процентов выросло число заказов с января по май?"
+        self.server.answer.update(options=opts, choices=[1], readings=[
+            {"label":"Май", "value":"54", "unit":"заказа", "estimated":False},
+            {"label":"Январь", "value":"18", "unit":"заказов", "estimated":False}])
+        result = self.solve(question=q, options=opts)
+        self.assertEqual(result["choices"], [2])
+        self.assertIn("200 %", result["equation"])
+        self.assertEqual([r["label"] for r in result["readings"]], ["Январь", "Май"])
+        self.assertEqual(result["observation"], "")
+        for key, value in (("label", "Апрель"), ("unit", "тыс. заказов"), ("estimated", True), ("value", "-1")):
+            with self.subTest(key=key):
+                original = self.server.answer["readings"][0][key]
+                self.server.answer["readings"][0][key] = value
+                self.assertEqual(self.solve(question=q, options=opts)["choices"], [])
+                self.server.answer["readings"][0][key] = original
+        del self.server.answer["readings"]
+        self.assertEqual(self.solve(question=q, options=opts)["choices"], [])
+
+    def test_absolute_decrease_and_percentage_points_are_distinct(self):
+        for q, opts, labels, values, unit, expected in [
+            ("На сколько дней сократилось время доставки с января по апрель?", ["6", "9", "15"],
+             ["Январь", "Апрель"], ["15", "6"], "дней", [2]),
+            ("На сколько процентных пунктов вырос показатель с 2022 по 2023?", ["50 п.п.", "4 п.п.", "8 п.п."],
+             ["2022", "2023"], ["8", "12"], "%", [2]),
+            ("На сколько процентов вырос показатель с 2022 по 2023?", ["50 %", "4 %", "8 %"],
+             ["2022", "2023"], ["8", "12"], "%", [1]),
+            ("На сколько процентов вырос показатель с 2022 по 2023?", ["50 %", "4 %", "8 %"],
+             ["2022", "2023"], ["0", "12"], "%", [])]:
+            with self.subTest(q=q, values=values):
+                self.server.answer.update(options=opts, choices=[3], readings=[
+                    {"label":label, "value":value, "unit":unit, "estimated":False}
+                    for label,value in zip(labels, values)])
+                self.assertEqual(self.solve(question=q, options=opts)["choices"], expected)
+
     def test_auto_reads_both_image_and_external_caption(self):
         self.server.answer["instruction"] = "Выберите два ответа"
         self.server.answer["choices"] = [1, 3]

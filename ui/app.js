@@ -10,7 +10,8 @@ let modelLoadVersion = 0;
 const state = {
   stream:null, regions:[], draftRegions:[], draftDrag:null, lectures:[], selected:new Set(),
   layoutMode:'auto', autoArmed:false, autoFocus:null, focusAspect:0, snapshotAspect:0,
-  resumeCalibration:false, shareAttempt:0,
+  resumeCalibration:false, shareAttempt:0, tabReading:false, tabFrame:null,
+  previousReading:null, warningKey:null,
   running:false, session:0, signature:null, dirtyFrame:false, lastRead:-Infinity,
   ocrJob:null, solveJob:null, currentKey:null, candidateKey:null, pendingSince:null, displayedKey:null,
   captureTrace:[], candidateSeenAt:null, firstSeenAt:null, confirmedTexts:null, captureIssue:null,
@@ -56,6 +57,23 @@ function drawAnswer(container, info) {
   addText(container, 'answer-title', info.title);
   addText(container, 'answer-text', info.subtitle);
   addText(container, info.tentative ? 'answer-text problem-text' : 'answer-text', info.note);
+  for (const warning of info.readingWarnings || []) {
+    const figure = container.ownerDocument.createElement('figure');
+    figure.className = 'reading-warning';
+    figure.setAttribute('data-reading-warning', String(warning.field));
+    const caption = container.ownerDocument.createElement('figcaption');
+    caption.textContent = (warning.field ? 'Вариант ' + warning.field : 'Вопрос') +
+      ' · «' + warning.readings[0] + '» или «' + warning.readings[1] + '»';
+    figure.append(caption);
+    if (warning.image) {
+      const image = container.ownerDocument.createElement('img');
+      image.src = warning.image;
+      if (warning.fullRow) image.className='reading-row';
+      image.alt = warning.field ? 'Фрагмент варианта ' + warning.field : 'Фрагмент вопроса';
+      figure.append(image);
+    }
+    container.append(figure);
+  }
   if (info.selections) {
     for (const item of info.selections) addText(container, 'answer-text', item.choice + '. ' + item.text);
     const details = container.ownerDocument.createElement('details');
@@ -108,9 +126,10 @@ function idleAnswer() { answer({title:'Жду вопрос', subtitle:'Здес�
 function controls() {
   const sharing = Boolean(state.stream);
   const auto = state.layoutMode === 'auto';
+  el('stage').hidden = state.tabReading;
   const ready = sharing && (auto || validFields(state.regions.length)) && state.selected.size > 0;
   for (const link of [el('modelAdvisor'), el('navSetup'), el('studyCardsLink')]) {
-    link.target = sharing ? '_blank' : '_self';
+    link.target = (sharing || state.tabReading) ? '_blank' : '_self';
     link.rel = 'noopener';
   }
   el('sessionView').classList.toggle('sharing', sharing);
@@ -148,16 +167,23 @@ el('record').addEventListener('change', () => {
 });
 
 el('visual').addEventListener('click', event => {
-  if (!state.stream || preview.readyState < 2) return;
-  event.preventDefault();
   const fields = state.candidateKey === null && state.confirmedTexts ? state.confirmedTexts.slice() : [];
-  if (!openQuizVisual(() => ({image:wholeWindowImage(), question:fields[0] || '', options:fields.slice(1)}))) {
-    notify('Разреши открыть вкладку, чтобы передать кадр. Для разбора отдельного файла открой ссылку через контекстное меню.');
+  const live = Boolean(state.stream && preview.readyState >= 2);
+  if (!live && !(state.tabReading && fields.length)) return;
+  event.preventDefault();
+  // A quiz can advance while the new tab is opening. Bind the fields only to
+  // their actual OCR frame, or carry text alone when reading a browser tab.
+  const saved = live && window.QuizChart?.imageFor(fields, state.session);
+  const carry = saved || !live ? fields : [];
+  const frame = {image:saved || (live ? wholeWindowImage(true) : null),
+    question:carry[0] || '', options:carry.slice(1), selectionMode:window.QuizChart?.selectionMode || el('selectionMode').value};
+  if (!openQuizVisual(() => frame)) {
+    notify('Разреши открыть вкладку, чтобы передать задание для разбора.');
   }
 });
 
 function applySettingsChange() {
-  if (state.autoArmed && state.stream) {
+  if (state.tabReading || (state.autoArmed && state.stream)) {
     start();
   } else if (state.running) {
     stop('Настройки изменены. Запусти чтение снова.');
@@ -201,7 +227,7 @@ async function loadLectures() {
   const initial = settings().selected;
   state.selected = new Set(state.lectures.map(l=>l.id).filter(id=>!Array.isArray(initial)||initial.includes(id)));
   renderLectures();
-  if(state.autoArmed && !state.running && state.selected.size) start();
+  if((state.autoArmed || state.tabReading) && !state.running && state.selected.size) start();
 }
 el('addLecture').addEventListener('click', () => el('files').click());
 el('files').addEventListener('change', async event => {
@@ -210,7 +236,7 @@ el('files').addEventListener('change', async event => {
   const fileErrors=[];
   let complete=0;
   el('addLecture').disabled = true;
-  if (state.running && !state.autoArmed) stop();
+  if (state.running && !state.autoArmed && !state.tabReading) stop();
   try {
     for(const file of files) {
       el('fileInfo').textContent = 'Добавляю '+file.name+'…';
@@ -221,7 +247,7 @@ el('files').addEventListener('change', async event => {
         state.selected.add(data.lecture.id);
         complete++;
         remember('selected',[...state.selected]); renderLectures();
-        if(state.autoArmed) applySettingsChange();
+        if(state.autoArmed || state.tabReading) applySettingsChange();
       } catch(error) { fileErrors.push(file.name+' — '+error.message); }
     }
     el('fileInfo').textContent = 'Добавлено файлов — '+complete+'. '+fileErrors.join(' ');
@@ -275,7 +301,9 @@ el('compact').addEventListener('click', async () => {
     doc.documentElement.lang='ru';
     const link=doc.createElement('link');
     link.rel='stylesheet'; link.href=new URL('/style.css',location.href).href;
-    doc.head.append(link); doc.body.className='pip';
+    const captureStyle = doc.createElement('link');
+    captureStyle.rel='stylesheet'; captureStyle.href=new URL('/capture.css',location.href).href;
+    doc.head.append(link, captureStyle); doc.body.className='pip';
     const area=doc.createElement('div'); area.id='pipAnswer'; doc.body.append(area);
     if(state.response) drawAnswer(area,state.response);
     state.pip.addEventListener('pagehide',()=>{state.pip=null;},{once:true});
@@ -343,6 +371,10 @@ el('share').addEventListener('click',async () => {
       video:{frameRate:{ideal:6,max:12},cursor:'never'},audio:false,selfBrowserSurface:'exclude',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'
     });
     if(attempt!==state.shareAttempt) {stream.getTracks().forEach(track=>track.stop());return;}
+    if (state.tabReading) {
+      window.quizLensTabCapture.stop();
+      window.dispatchEvent(new Event('quizlens-tab-disconnect'));
+    }
     release();
     const track=stream.getVideoTracks()[0];
     state.stream=stream;
@@ -542,8 +574,8 @@ function encodeCanvas(canvas) {
 function searchPixels() {
   return state.autoFocus ? pixels(state.autoFocus) : [0,0,preview.videoWidth,preview.videoHeight];
 }
-function wholeWindowImage() {
-  const source=searchPixels();
+function wholeWindowImage(fullWindow = false) {
+  const source=fullWindow ? [0, 0, preview.videoWidth, preview.videoHeight] : searchPixels();
   const scale=Math.min(1,1920/source[2],1280/source[3]);
   ocrCanvas.width=Math.max(1,Math.round(source[2]*scale));
   ocrCanvas.height=Math.max(1,Math.round(source[3]*scale));
@@ -552,6 +584,8 @@ function wholeWindowImage() {
 }
 function clearWorkflow() {
   state.session++;
+  state.previousReading=null;state.warningKey=null;
+  window.QuizChart?.show(null);
   window.clearInterval(state.timer);state.timer=null;
   state.ocrJob?.controller.abort();state.ocrJob=null;
   state.solveJob?.controller.abort();state.solveJob=null;
@@ -565,6 +599,15 @@ function stop(reason='') {
   if(reason) notify(reason);
 }
 function start() {
+  if (state.tabReading) {
+    clearWorkflow();
+    state.running=state.selected.size>0;
+    controls();showTexts(null);
+    answer({title:state.running ? 'Жду вопрос во вкладке' : 'Отметь документ'});
+    status(state.running ? 'Читаю вкладку' : 'Отметь документ');
+    if (state.running && state.tabFrame) window.quizLensTabCapture.read(state.tabFrame.texts, state.tabFrame.hint);
+    return;
+  }
   const auto=state.layoutMode==='auto';
   if(!state.stream || (!auto && (!validFields(state.regions.length) || !state.selected.size))) return;
   clearWorkflow();
@@ -585,6 +628,27 @@ function start() {
   answer({title:auto?'Ожидаю вопрос и варианты':'Читаю вопрос…'});
   state.timer=window.setInterval(tick,260);tick();
 }
+// The extension calls this adapter with the visible question and displayed controls.
+window.quizLensTabCapture = {
+  start() {
+    state.tabReading=false;state.tabFrame=null;
+    release();
+    state.tabReading=true;
+    start();
+  },
+  read(texts, hint={}) {
+    if (!state.tabReading || !Array.isArray(texts) || (texts.length && !validFields(texts.length))) return;
+    if (!texts.every((line,i) => typeof line==='string' && line.length<=(i===0?6000:3000))) return;
+    const mode={selectionMode:hint?.selectionMode, expectedCount:hint?.expectedCount};
+    state.tabFrame={texts:texts.slice(),hint:mode};
+    if (state.running) acceptTexts(texts,state.session,null,mode);
+  },
+  stop() {
+    if (!state.tabReading) return;
+    state.tabReading=false;state.tabFrame=null;
+    stop();
+  }
+};
 el('run').addEventListener('click',()=>{if(state.running || state.autoArmed) stop();else start();});
 function selectionForFrame(hint,optionCount) {
   const override=el('selectionMode').value;
@@ -649,7 +713,7 @@ async function solve(texts,key,session,selection) {
       record:el('record').checked,channel:'browser'};
     const requestAt=performance.now();
     if (state.firstSeenAt!==null) params.captureMs=Math.round(Math.max(0,requestAt-state.firstSeenAt));
-    if (params.record) params.captureTrace=traceForRequest(requestAt);
+    if (params.record && !state.tabReading) params.captureTrace=traceForRequest(requestAt);
     const result=await postJson('/api/solve',params,job.controller.signal);
     if(state.session!==session || job.controller.signal.aborted) return;
     const view=answerForResult(result,options,selection);
@@ -664,7 +728,7 @@ async function solve(texts,key,session,selection) {
   } finally { if(state.solveJob===job) state.solveJob=null; }
 }
 function noteCapture(texts,status,timestamp) {
-  if (!el('record').checked) return;
+  if (state.tabReading || !el('record').checked) return;
   const question=(texts[0] || '').slice(0,400);
   const options=texts.slice(1,9).map(text=>text.slice(0,220));
   const key=JSON.stringify([status,question,options]);
@@ -681,12 +745,106 @@ function traceForRequest(timestamp) {
   }));
 }
 
-function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.now()) {
+function warningsForFrame(raw, fieldCount) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0,fieldCount).flatMap(warning => {
+    if (!Number.isInteger(warning?.field) || warning.field<0 || warning.field>=fieldCount ||
+        !Array.isArray(warning.readings) || warning.readings.length!==2 ||
+        !warning.readings.every(text => typeof text==='string' && text.trim())) return [];
+    const readings=warning.readings.map(text=>text.trim().slice(0,160));
+    if (readings[0]===readings[1]) return [];
+    const image = typeof warning.image==='string' && warning.image.length<=400_000 &&
+      warning.image.startsWith('data:image/png;base64,') ? warning.image : null;
+    return [{field:warning.field, readings, image}];
+  });
+}
+
+// A new number or a lost negation can change the key without changing the rest
+// of the question. Invalidate the old answer as soon as such a change is seen.
+function criticalDifference(previous, next) {
+  if (!previous || previous.length!==next.length) return null;
+  let field=-1;
+  for (let i=0;i<next.length;i++) {
+    if (previous[i]===next[i]) continue;
+    if (field!==-1) return null;
+    field=i;
+  }
+  if (field===-1) return null;
+  const critical=/\d+(?:[.,]\d+)?|[+−–—%‰<>≤≥=×÷-]|(?<![\p{L}\p{N}_])(?:не|ни|нет|not|no|never)(?![\p{L}\p{N}_])/giu;
+  const rest=text=>text.replace(critical,'').replace(/\s+/g,' ').trim();
+  const a=previous[field], b=next[field];
+  if (rest(a)!==rest(b) || (a.match(critical)||[]).join(' ')===(b.match(critical)||[]).join(' ')) return null;
+  // Keep the common words around the edit so that a long question still
+  // shows what changed, rather than two truncated identical prefixes.
+  let start=0;
+  while (start<a.length && start<b.length && a[start]===b[start]) start++;
+  const clip=text=> (start>34 ? '…' : '') + text.slice(Math.max(0,start-34), start+48) +
+    (text.length>start+48 ? '…' : '');
+  return {field,readings:[clip(a),clip(b)]};
+}
+
+async function rowFromFrame(frame, field) {
+  const rect=frame?.regions?.[field];
+  if (!rect || typeof frame.image!=='string' || !frame.image.startsWith('data:image/')) return null;
+  const image=new Image();
+  image.src=frame.image;
+  await image.decode();
+  // Coordinates are relative to the pixel buffer that was actually submitted,
+  // including when it contained stacked manual crops or a single focus area.
+  const x=Math.max(0,Math.floor(rect.x*image.naturalWidth));
+  const y=Math.max(0,Math.floor(rect.y*image.naturalHeight));
+  const width=Math.min(image.naturalWidth-x,Math.ceil(rect.w*image.naturalWidth));
+  const height=Math.min(image.naturalHeight-y,Math.ceil(rect.h*image.naturalHeight));
+  if (!(width>0 && height>0)) return null;
+  const canvas=document.createElement('canvas');
+  const scale=Math.min(2,900/width,180/height);
+  canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
+  canvas.getContext('2d').drawImage(image,x,y,width,height,0,0,canvas.width,canvas.height);
+  return canvas.toDataURL('image/png');
+}
+
+function reviewReading(texts, warnings, frame) {
+  // Do not publish an answer based on (or cached before) the unresolved pixels.
+  state.solveJob?.controller.abort();state.solveJob=null;
+  state.currentKey=null;state.displayedKey=null;state.confirmedTexts=null;state.firstSeenAt=null;
+  window.QuizChart?.show(null);
+  const key=JSON.stringify([texts,warnings.map(w=>[w.field,w.readings])]);
+  if (key===state.warningKey) return;
+  state.warningKey=key;
+  showTexts(texts);
+  const view={title:'Сверь распознанный текст', subtitle:'Чтения различаются. QuizLens перепроверяет кадр.',
+    unclear:true, readingWarnings:warnings};
+  answer(view);status('Проверяю символы','problem');
+  const missing=warnings.find(w=>!w.image);
+  if (!missing || !frame) return;
+  rowFromFrame(frame,missing.field).then(image=>{
+    if (image && state.warningKey===key && state.response===view) {
+      missing.image=image;missing.fullRow=true;
+      answer(view);
+    }
+  }).catch(()=>{}); // The alternatives remain visible if the image cannot be decoded.
+}
+
+function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.now(),frame=null) {
+  if (session!==state.session) return;
   if(!Array.isArray(raw) || (raw.length!==0 && !validFields(raw.length))) throw new Error('OCR вернул некорректное число областей.');
   const texts=raw.map(s=>typeof s==='string'?s.normalize('NFC').replace(/\s+/g,' ').trim():'');
-  const identity=Array.isArray(comparisonTexts) && comparisonTexts.length===raw.length && comparisonTexts.every(s=>typeof s==='string')
+  const compared=Array.isArray(comparisonTexts) && comparisonTexts.length===raw.length && comparisonTexts.every(s=>typeof s==='string')
     ? comparisonTexts : texts;
+  // Percent spacing often changes across OCR passes. The server still gets
+  // what was read, and options that differ only in typography stay distinct.
+  const compact=compared.map((value,i)=>i ? value.replace(/^([+−-]?\d+(?:[,.]\d+)?)\s+([%‰])$/, '$1$2') : value);
+  const identity=new Set(compact.slice(1)).size===texts.length-1 ? compact : compared;
   const complete=validFields(texts.length) && texts.every(Boolean) && identity.every(Boolean) && new Set(identity.slice(1)).size===texts.length-1;
+  const warnings=warningsForFrame(hint.readingWarnings,texts.length);
+  if (warnings.length) {
+    state.previousReading=null;state.pendingSince=null;state.candidateKey=null;state.candidateSeenAt=null;
+    noteCapture(texts,'partial',observedAt);
+    reviewReading(texts,warnings,frame);
+    return;
+  }
+  const change=complete && !state.tabReading ? criticalDifference(state.previousReading,texts) : null;
+  state.previousReading=complete ? texts : null;
   // Keep option order, negation, case and mathematical symbols in the identity.
   if (complete || texts.some(Boolean) || state.captureIssue || state.currentKey) {
     noteCapture(texts,complete?'complete':'partial',observedAt);
@@ -694,16 +852,23 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
   const selection=selectionForFrame(hint,texts.length-1);
   const key=complete ? JSON.stringify([el('model').value,[...state.selected].sort(),identity,selection.selectionMode,selection.expectedCount]) : '';
 
-  if(key!==state.currentKey && key!==state.candidateKey) {
+  if (change && key!==state.currentKey) {
+    state.candidateKey=key;state.candidateSeenAt=observedAt;state.pendingSince=null;
+    reviewReading(texts,[change],frame);
+    return;
+  }
+  if(!state.tabReading && key!==state.currentKey && key!==state.candidateKey) {
+    window.QuizChart?.show(null);
     if(state.pendingSince===null) state.pendingSince=performance.now();
     state.candidateKey=key;state.candidateSeenAt=observedAt;
-    if(state.currentKey===null) {
+    if((complete || state.currentKey===null) && !state.warningKey) {
+      state.displayedKey=null;
       showTexts(texts);
       answer({title:'Проверяю текст…'});status('Распознаю','active');
     }
     return;
   }
-
+  state.warningKey=null;
   const seenAt=state.candidateSeenAt ?? observedAt;
   state.candidateKey=null;state.pendingSince=null;state.candidateSeenAt=null;
   if(key!==state.currentKey) {
@@ -725,16 +890,28 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
       status('Нужен формат','problem');
     }
   }
-  if(complete && selection.selectionMode!=='unknown') solve(texts,key,session,selection);
+  if (complete && selection.selectionMode!=='unknown') {
+    const chart=window.QuizChart?.show(texts[0],selection.selectionMode);
+    if (chart) {
+      if (state.displayedKey!==key) {
+        answer({title:'Нужны данные с изображения',subtitle:'Открой разбор, чтобы сверить значения и подписи.',unclear:true});
+        status('Нужен рисунок','active');state.displayedKey=key;
+      }
+      return;
+    }
+    solve(texts,key,session,selection);
+  } else {
+    window.QuizChart?.show(null);
+  }
 }
 
-function acceptLayout(result,session,observedAt) {
+function acceptLayout(result,session,observedAt,frame) {
   const {regions,texts}=result;
   if(!Array.isArray(regions) || !Array.isArray(texts)) throw new Error('Не удалось прочитать авторазметку.');
   state.captureIssue=result.captureStatus==='partial' ? result.hint || 'Прокрути до конца списка ответов.' : null;
   if(!regions.length && !texts.length) {
     // A waiting room is a normal first frame. Avoid a pointless second full scan.
-    if(!state.currentKey && state.candidateKey===null && !state.regions.length) {
+    if(!state.currentKey && state.candidateKey===null && !state.regions.length && !state.warningKey) {
       if(state.captureIssue) noteCapture([],'partial',observedAt);
       state.currentKey='';status('Ожидаю вопрос','active');
       if(state.response?.title!==(state.captureIssue || 'Ожидаю вопрос и варианты')) {
@@ -766,7 +943,7 @@ function acceptLayout(result,session,observedAt) {
     paintLiveAreas();
     controls();
   }
-  acceptTexts(texts,session,result.comparisonTexts,result,observedAt);
+  acceptTexts(texts,session,result.comparisonTexts,result,observedAt,frame);
 }
 
 async function recognize(session) {
@@ -775,15 +952,19 @@ async function recognize(session) {
   try {
     const auto=state.layoutMode==='auto';
     const payload=auto ? {image:wholeWindowImage()} : ocrImage();
+    const chartFrame=auto && !state.autoFocus ? payload.image : window.QuizChart?.needsFrame(session) ? wholeWindowImage(true) : null;
     payload.lectureIds=[...state.selected];
     const result=await postJson(auto?'/api/detect-layout':'/api/ocr',payload,job.controller.signal);
     if(state.session!==session || job.controller.signal.aborted) return;
-    if(auto) acceptLayout(result,session,job.frameAt);
-    else acceptTexts(result.texts,session,result.comparisonTexts,result,job.frameAt);
+    const frame={image:payload.image,regions:auto ? result.regions : payload.regions};
+    if(auto) acceptLayout(result,session,job.frameAt,frame);
+    else acceptTexts(result.texts,session,result.comparisonTexts,result,job.frameAt,frame);
+    window.QuizChart?.remember(result.texts,chartFrame,session);
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;
     state.currentKey=null;state.candidateKey=null;state.pendingSince=null;state.displayedKey=null;
     state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedTexts=null;
+    state.warningKey=null;state.previousReading=null;window.QuizChart?.show(null);
     state.solveJob?.controller.abort();state.solveJob=null;
     state.retryOcrAt=performance.now()+1900;
     showTexts(null);
@@ -815,6 +996,7 @@ function tick() {
       // page, periodically recheck the entire layout for tiny edits or movement.
       wait=quickRead ? 300 : state.dirtyFrame ? 700 : 3000;
     }
+    if(state.warningKey && state.candidateKey===null) wait=850;
     if(!state.ocrJob && now>=state.retryOcrAt && now-state.lastRead>=wait) recognize(state.session);
   } catch(error) { stop('Не удалось прочитать кадр. '+error.message); }
 }

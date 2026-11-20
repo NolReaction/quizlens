@@ -8,9 +8,11 @@
   <link rel="stylesheet" href="/capture.css">
   <script src="/demo-window.js" defer></script>
   <script src="/visual-transfer.js" defer></script>
+  <script src="/chart-assist.js" defer></script>
   <script src="/token-usage.js" defer></script>
   <script src="/answer-proof.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/tab-reader.js" defer></script>
 </head>
 <body>
 <header class="top"><div class="bar">
@@ -58,6 +60,9 @@
         <a class="button trial-button" data-demo-window href="/demo?lobby=1" target="quizlens-demo">Открыть пробный квиз ↗</a>
         <button type="button" class="button text-button" id="release" hidden>Отключить</button>
       </div>
+      <p class="hint"><a class="text-link" href="/tab-reader-help.html" target="_blank" rel="noopener">Как читать текст из вкладки ↗</a></p>
+      <p class="hint" id="tabReaderStatus" role="status"></p>
+      <button type="button" class="button" id="stopTabReader" hidden>Остановить чтение вкладки</button>
       <div id="stage" class="stage">
         <div class="empty" id="emptyStage"><span class="window-icon" aria-hidden="true"><i></i></span><strong>Предпросмотр выбранного окна</strong></div>
         <div class="video-box" id="videoBox" hidden><video id="preview" muted playsinline autoplay></video><div class="areas" id="liveAreas" aria-hidden="true"></div></div>
@@ -85,8 +90,8 @@
       <section class="panel result" aria-labelledby="resTitle">
         <div class="section-head"><h2 id="resTitle">Ответ</h2><button class="mini-button" type="button" id="compact" title="Открыть отдельное окно с ответом">Поверх окон ↗</button></div>
         <div id="answer" class="answer-body" aria-live="polite" aria-atomic="true"></div>
-        <div class="readout"><h3>Распознанный текст</h3><div id="readText" class="read-text">Ожидание первого вопроса.</div></div>
-        <div class="result-tools"><a href="/visual" id="visual" class="subtle" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
+        <div class="readout"><h3 id="readHeading">Текст вопроса и вариантов</h3><div id="readText" class="read-text">Ожидание первого вопроса.</div></div>
+        <div class="result-tools"><p id="visualPrompt" class="hint" hidden></p><a href="/visual" id="visual" class="subtle" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
       </section>
       <a class="text-link" id="studyCardsLink" href="/train#cards">Открыть учебные карточки →</a>
     </div>

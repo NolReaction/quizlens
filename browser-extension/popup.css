@@ -1,0 +1,7 @@
+:root { color-scheme: dark; font: 15px/1.5 system-ui,sans-serif; background:#101820; color:#eff7f7; }
+body { width:270px; margin:18px; }
+h1 { margin:0; font-size:21px; }
+p { margin:9px 0 16px; }
+button { border:0; border-radius:8px; background:#79dfbe; color:#102820; font:inherit; font-weight:650; padding:9px 14px; cursor:pointer; }
+button:focus-visible { outline:2px solid white; outline-offset:3px; }
+button:disabled { opacity:.6; }

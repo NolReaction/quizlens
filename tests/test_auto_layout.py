@@ -188,6 +188,17 @@ class VariableLayoutTests(unittest.TestCase):
         result=detect_layout(data)
         self.assertEqual(result['texts'][1:],names)
 
+    def test_grid_with_small_misread_third_ordinal_keeps_spatial_order(self):
+        values = ["45 минут", "90 минут", "60 минут", "30 минут"]
+        data = [part("Сколько минут в одном часе?", .06, .10, .45, .036)]
+        for i, (badge, value) in enumerate(zip(("1", "2", "Е", "4"), values)):
+            row, col = divmod(i, 2)
+            x, y = .07 + col * .42, .28 + row * .14
+            data.extend([part(badge, x, y + .007, .009, .022), part(value, x + .045, y, .15, .034)])
+        self.assertEqual(detect_layout(data, aspect=1.8)["texts"][1:], values)
+        data[5]["text"] = "7"
+        self.assertIsNone(detect_layout(data, aspect=1.8))
+
     def test_small_square_badge_corner_stays_out_of_option_text(self):
         values = ['Count', 'Recall', 'Range', 'Median', 'Precision']
         data=self.frame(values,2,False,footer=False)

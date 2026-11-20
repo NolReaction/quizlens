@@ -24,6 +24,18 @@ class NativeAutoTests(unittest.TestCase):
         self.session = self.mode._session
         self.token = result["session"]
 
+    def test_reviewed_layout_discards_timer_and_attaches_warning_to_visible_option(self):
+        lines = [line("Какой процент показан в примере?", .12, .30, .52, .04)]
+        for i, val in enumerate(["0,5%", "5%", "10%", "50%"]):
+            lines.append(line(f"{i+1}. {val}", .12, .40+i*.09, .2))
+        timer = {**line("19 с", .76, .1, .04), "readingWarning": {"readings":["19", "10"]}}
+        self.mode._handle_frame(self.session, lines+[timer])
+        self.assertEqual(self.session["readingWarnings"], [])
+        lines[1]["readingWarning"] = {"readings":["0,5%", "5%"]}
+        self.mode._handle_frame(self.session, lines+[timer])
+        self.assertEqual(self.session["readingWarnings"], [{"field":1, "readings":["0,5%", "5%"]}])
+        self.assertIsNone(self.mode._pending)
+
     def test_armed_lobby_grid_then_vertical_new_question(self):
         lobby = [line("В ожидании ведущего", .16, .2, .35)]
         for _ in range(3):

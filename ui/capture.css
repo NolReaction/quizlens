@@ -87,3 +87,8 @@
 @media (max-width:380px) {
   .model-picker {flex-wrap:wrap}
 }
+
+.reading-warning {margin:10px 0 0; padding:10px 12px; border-left:3px solid #d4a966; background:#222c2d; border-radius:4px; color:#f2e6d4}
+.reading-warning figcaption {overflow-wrap:anywhere; font-size:.95rem; line-height:1.4}
+.reading-warning img {display:block; max-width:100%; width:auto; height:60px; margin-top:8px; object-fit:contain; object-position:left center}
+.reading-warning img.reading-row {height:auto; max-height:190px}

@@ -72,3 +72,20 @@ test('only opener from same origin may import captured frame; crop changes the p
  assert.ok(Math.abs(els.photo.height-300)<=1);
  els.resetCrop.onclick();assert.equal(els.photo.width,1000);assert.equal(els.photo.height,600);
 });
+
+test('a tab reader transfers wording alone, then attaches the selected image without losing the options',async()=>{
+ const {els,events,opener,origin,calls}=await boot({capture:true});
+ events.message({source:opener,origin,data:{type:'quizlens-visual-frame',image:null,
+   question:'По графику какие два месяца лидируют?',options:['Май','Июнь','Июль'],selectionMode:'multiple'}});
+ assert.equal(els.solve.disabled,true);
+ assert.equal(els.selection.value,'multiple');
+ assert.equal(els.manualOptions.value,'Май\nИюнь\nИюль');
+ els.video.videoWidth=800; els.video.videoHeight=600;
+ els.freeze.onclick();
+ assert.equal(els.solve.disabled,false);
+ await els.solve.onclick();
+ assert.equal(calls[0].question,'По графику какие два месяца лидируют?');
+ assert.deepEqual(calls[0].options,['Май','Июнь','Июль']);
+ els.freeze.onclick();
+ assert.equal(els.manualQ.value,'');
+});

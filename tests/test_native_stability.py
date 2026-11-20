@@ -122,6 +122,29 @@ class NativeStabilityTests(unittest.TestCase):
         self.frame(question, options[::-1])
         self.assertGreater(self.session["revision"], revision)
 
+    def test_critical_disagreement_hides_answer_until_two_clean_reads(self):
+        options = ["0,5%", "5%", "10%", "50%"]
+        self.frame(self.question, options)
+        self.frame(self.question, options)
+        self.session.update(state="answer", answer={"choice": 1})
+        warning = {"readings": ["0,5%", "5%"], "image": "data:image/png;base64,ABC"}
+        lines = [dict(region=i, text=text, x=.12, y=.1+i*.16, w=.45, h=.035)
+                 for i, text in enumerate([self.question, *options])]
+        lines[1]["readingWarning"] = warning
+        self.mode._handle_frame(self.session, lines)
+        status = self.mode.get("/api/native/status", {"session": self.session["id"]})
+        self.assertEqual(status["readingWarnings"], [dict(warning, field=1)])
+        self.assertIsNone(status["answer"])
+        self.assertIsNone(self.mode._pending)
+        self.assertFalse(any("image" in str(row) for row in self.session["captureTrace"]))
+        self.frame(self.question, options)
+        self.assertIsNone(self.mode._pending)
+        self.assertEqual(self.session["state"], "review")
+        self.frame(self.question, options)
+        self.assertEqual(self.mode._pending[2]["options"], options)
+        self.assertEqual(self.session["readingWarnings"], [])
+        self.assertNotIn("readingWarnings", self.mode._pending[2])
+
     def test_late_result_stays_hidden_and_expires_on_confirmed_switch(self):
         started = threading.Event()
         release = threading.Event()

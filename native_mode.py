@@ -14,6 +14,7 @@ import unicodedata
 
 from auto_layout import assess_layout
 from ocr_layout import ocr_texts
+from ocr import vision_reading_warnings
 from quiz_mode import clean_options, effective_hint, selection_hint
 
 
@@ -145,7 +146,7 @@ class NativeMode:
                 result = {
                     name: session[name] for name in
                     ("state", "message", "question", "options", "answer", "elapsed", "revision",
-                     "requestedMode", "selectionMode", "expectedCount")
+                     "requestedMode", "selectionMode", "expectedCount", "readingWarnings")
                 }
                 return result
         raise ValueError("Неизвестная команда захвата.")
@@ -164,7 +165,7 @@ class NativeMode:
                     self._pending = None
                     session.update(requestedMode=requested, selectionMode=None, expectedCount=None,
                                    revision=session["revision"] + 1, signature=None, recent=[], captureTrace=[],
-                                   unsettledSince=None, held=None, answer=None, elapsed=0,
+                                   unsettledSince=None, held=None, answer=None, elapsed=0, readingWarnings=[],
                                    question="", options=[], state="waiting",
                                    message="Проверяем режим ответа для текущего вопроса…")
             return {"requestedMode": requested}
@@ -223,7 +224,7 @@ class NativeMode:
                 "auto": auto, "requestedMode": requested, "selectionMode": None, "expectedCount": None,
                 "captureTrace": [], "focus": focus, "focusAspect": focus_aspect, "fieldCount": field_count, "record": record,
                 "message": "Ищу вопрос и варианты…" if auto else "Ожидание текста в выбранных областях…",
-                "question": "", "options": [],
+                "question": "", "options": [], "readingWarnings": [],
                 "answer": None, "elapsed": 0, "heartbeat": now, "started": now, "lastFrame": None, "revision": 0,
                 "signature": None, "recent": [], "unsettledSince": None, "held": None, "changed": now,
                 "normalize": index.normalize_ocr_fields,
@@ -291,6 +292,7 @@ class NativeMode:
             texts = ocr_texts(parts)
             hint = selection_hint(texts[0], texts[1:])
             texts[1:] = clean_options(texts[1:])
+        warnings = vision_reading_warnings(lines, texts, layout["regions"] if session["auto"] else None)
         fields = None
         if 3 <= len(texts) <= 9 and all(texts):
             fields = tuple(unicodedata.normalize("NFC", s) for s in session["normalize"](texts))
@@ -307,6 +309,23 @@ class NativeMode:
                 _note_capture(session, texts, fields is not None, now)
             session["lastFrame"] = now
             recent = session["recent"]
+            if warnings and fields is not None:
+                if not session["readingWarnings"]:
+                    session["revision"] += 1
+                self._pending = None
+                recent.clear()
+                session.update(state="review", message="Перепроверь выделенный фрагмент на экране.",
+                               question=texts[0], options=texts[1:], selectionMode=mode, expectedCount=count,
+                               readingWarnings=warnings, answer=None, elapsed=0, held=None,
+                               signature=None, unsettledSince=None)
+                return
+            if session["readingWarnings"]:
+                # Require two consecutive clean reads of this question before releasing the warning.
+                if signature is not None and (not recent or recent[-1][0] != signature):
+                    recent[:] = [(signature, now)]
+                    return
+                session.update(state="waiting", message="Перепроверяю текст…", question="", options=[],
+                               readingWarnings=[], selectionMode=None, expectedCount=None)
             if signature is not None and session["signature"] == signature:
                 recent.clear()
                 session["unsettledSince"] = None
@@ -399,7 +418,7 @@ class NativeMode:
                 self._condition.wait(timeout=1)
 
     def _error_locked(self, session, message):
-        session.update(state="error", answer=None, question="", options=[], message=message)
+        session.update(state="error", answer=None, question="", options=[], message=message, readingWarnings=[])
         self._pending = None
         if session["process"].poll() is None:
             session["process"].terminate()

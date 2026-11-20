@@ -15,7 +15,7 @@ function openQuizVisual(makeFrame) {
     if (event.origin !== location.origin || event.source !== tab || event.data?.type !== 'quizlens-visual-ready') return;
     disconnect();
     const value = await frame;
-    if (value?.image && !tab.closed) tab.postMessage({type:'quizlens-visual-frame', ...value}, location.origin);
+    if ((value?.image || (value?.question && value.options?.length >= 2)) && !tab.closed) tab.postMessage({type:'quizlens-visual-frame', ...value}, location.origin);
   }
   window.addEventListener('message', send);
   return true;

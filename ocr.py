@@ -21,7 +21,9 @@ import tempfile
 import threading
 import time
 
+from auto_layout import assess_layout
 from ocr_layout import ocr_texts
+from ocr_review import field_warnings
 
 _ROOT = Path(__file__).resolve().parent
 _MAX_BYTES = 8 * 1024 * 1024
@@ -190,7 +192,7 @@ def _exchange_frame(process, image, regions, timeout):
                     stage = reply["stage"]
 
 
-def _vision_locked(image, regions):
+def _vision_locked(image, regions, *, reviewed=False):
     global _worker, _worker_warm, _warmup_error
     if _closing:
         raise RuntimeError("QuizLens завершает работу.")
@@ -212,12 +214,25 @@ def _vision_locked(image, regions):
             if (not isinstance(parts, list) or not isinstance(aspect, (float, int))
                     or not math.isfinite(aspect) or aspect <= 0):
                 raise RuntimeError("Служба OCR вернула некорректную разметку кадра.")
-            result = parts, aspect
+            if reviewed:
+                from auto_layout import assess_layout
+                result = assess_layout(parts, aspect=aspect)
+                warnings = vision_reading_warnings(parts, result["texts"], result["regions"])
+                if warnings:
+                    result["readingWarnings"] = warnings
+            else:
+                result = parts, aspect
         else:
             texts = reply.get("texts")
             if not isinstance(texts, list) or len(texts) != len(regions) or not all(isinstance(s, str) for s in texts):
                 raise RuntimeError("Служба OCR вернула некорректный результат.")
             result = ocr_texts(reply["parts"]) if "parts" in reply else texts
+            if reviewed:
+                warnings = vision_reading_warnings(
+                    (dict(part, region=i) for i, group in enumerate(reply.get("parts", [])) for part in group), result)
+                result = {"texts": result}
+                if warnings:
+                    result["readingWarnings"] = warnings
         _worker_warm = True
         _warmup_error = ""
         return result
@@ -229,7 +244,42 @@ def _vision_locked(image, regions):
         raise
 
 
-def _vision(image, regions):
+def vision_reading_warnings(parts, texts, regions=None):
+    """Keep only competing readings that still belong to a visible quiz field."""
+    from ocr_review import field_for_box
+    warnings = []
+    if not texts:
+        return warnings
+    for part in parts:
+        notice = part.get("readingWarning")
+        if not isinstance(notice, dict):
+            continue
+        field = field_for_box(part, regions) if regions is not None else part.get("region")
+        readings = notice.get("readings")
+        if (type(field) is not int or not 0 <= field < len(texts) or not isinstance(readings, list)
+                or len(readings) != 2 or not all(isinstance(r, str) and 0 < len(r) <= 140 for r in readings)
+                or readings[0] == readings[1]):
+            continue
+        # A timer and numbering badges are intentionally removed from the text.
+        # Numeric boundaries avoid attaching a stray "1" to a retained "10".
+        pattern = r"(?<!\w)" + re.escape(readings[0]).replace(r"\ ", r"\s*") + r"(?!\w)"
+        if not re.search(pattern, texts[field], re.IGNORECASE):
+            continue
+        warning = {"field": field, "readings": readings}
+        image = notice.get("image")
+        if isinstance(image, str) and len(image) < 45000 and image.startswith("data:image/png;base64,"):
+            warning["image"] = image
+        warnings.append(warning)
+        if len(warnings) == 3:
+            break
+    return warnings
+
+
+def reviewed_vision(image, regions):
+    return _vision(image, regions, reviewed=True)
+
+
+def _vision(image, regions, *, reviewed=False):
     if not _lock.acquire(timeout=0.5):
         thread = _warmup_thread
         if thread is not None and thread.is_alive():
@@ -237,7 +287,7 @@ def _vision(image, regions):
         if not _lock.acquire(timeout=0.1):
             raise RuntimeError("Сейчас OCR читает другой кадр. Дождитесь результата и повторите проверку.")
     try:
-        return _vision_locked(image, regions)
+        return _vision_locked(image, regions, reviewed=reviewed)
     finally:
         _lock.release()
 
@@ -367,7 +417,7 @@ def _read_tsv(pages, binary, languages, mode, timeout):
             seen.add(page)
         if level == 5 and cells[11].strip():
             x, y, w, h = map(int, cells[6:10])
-            groups[page].append(dict(text=cells[11], x=x, y=y, w=w, h=h))
+            groups[page].append(dict(text=cells[11], x=x, y=y, w=w, h=h, confidence=float(cells[10])))
     if len(seen) != len(pages):
         raise RuntimeError("Tesseract вернул неполный результат распознавания.")
     return groups
@@ -458,7 +508,7 @@ def _verify_lecture_words(pages, groups, binary, vocabulary):
             part["text"] = match[1] + read[1] + match[3]
 
 
-def _tesseract(raw_image, regions, vocabulary=None):
+def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
     try:
         from PIL import Image
     except ImportError as exc:
@@ -467,6 +517,7 @@ def _tesseract(raw_image, regions, vocabulary=None):
         raise RuntimeError("Для Tesseract нужен Pillow. Установите python3-pil или пакет Pillow через pip.") from exc
     binary, languages = _tesseract_config()
     pages = []
+    originals = []
     try:
         with Image.open(io.BytesIO(raw_image)) as image:
             width, height = image.size
@@ -480,6 +531,8 @@ def _tesseract(raw_image, regions, vocabulary=None):
                 resampling = getattr(Image, "Resampling", Image)
                 page = image.resize(target, resampling.LANCZOS) if target != image.size else image
                 pages.append(page.convert("L"))
+                if review:
+                    originals.append(image.convert("L") if target != image.size else pages[0])
             else:
                 for region in regions:
                     left = math.floor(region["x"] * width)
@@ -489,9 +542,11 @@ def _tesseract(raw_image, regions, vocabulary=None):
                     pages.append(image.crop((left, top, min(right, width), min(bottom, height))).convert("L"))
     except (OSError, Image.DecompressionBombError) as exc:
         raise ValueError("Не удалось прочитать изображение.") from exc
+    if regions is not None and review:
+        originals = pages
     groups = _read_tsv(pages, binary, languages, "11" if regions is None else "6", timeout=15)
     if regions is None and len(groups[0]) > 900:
-        return [], width / height
+        return {"regions": [], "texts": []} if review else ([], width / height)
     if vocabulary and "eng" in languages:
         _verify_lecture_words(pages, groups, binary, vocabulary)
     groups = [[piece for part in parts for piece in _separate_badge(page, part)]
@@ -501,8 +556,31 @@ def _tesseract(raw_image, regions, vocabulary=None):
         w, h = pages[0].size
         parts = [dict(text=p["text"], x=p["x"]/w, y=p["y"]/h, w=p["w"]/w, h=p["h"]/h)
                  for p in groups[0] if p["w"] > 0 and p["h"] > 0]
-        return (parts if len(parts) <= 900 else []), width / height
-    return ocr_texts(groups)
+        parts = parts if len(parts) <= 900 else []
+        if not review:
+            return parts, width / height
+        result = assess_layout(parts, aspect=width / height)
+    else:
+        texts = ocr_texts(groups)
+        if not review:
+            return texts
+        result = {"texts": texts}
+
+    warnings = field_warnings(pages, originals, groups, result["texts"], result.get("regions"),
+                              lambda crops: _read_tsv(crops, binary, languages, "7", timeout=1.4))
+    if warnings:
+        result["readingWarnings"] = warnings
+    return result
+
+
+def reviewed_capture(image_data_url, regions=None, vocabulary=None, *, auto=False):
+    """Return current-frame text, layout and any conflicting pixel readings."""
+    if not auto:
+        regions = _validate_regions(regions)
+    raw = _decode_image(image_data_url)
+    if sys.platform == "darwin":
+        return reviewed_vision(raw, regions)
+    return _tesseract(raw, regions, vocabulary, review=True)
 
 
 def layout_observations(image_data_url, vocabulary=None):

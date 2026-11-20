@@ -1,7 +1,7 @@
 """Spatial OCR regressions for animated, numbered quiz cards."""
 import unittest
 
-from ocr_layout import ocr_texts
+from ocr_layout import numbered_gutter_texts, ocr_texts
 
 
 def part(text, x, y=0, w=7, h=14):
@@ -55,6 +55,23 @@ class Layout(unittest.TestCase):
         mixed = [[part(str(i), 1), part(t, 28, w=200)] for i, t in enumerate(
             ["Шаг 1 процесса", "Осталось 2 секунды", "3 тысячи", "4 / 9"], 1)]
         self.assertEqual(read(option("Что значит 2?"), mixed)[1:], ["Шаг 1 процесса", "Осталось 2 секунды", "3 тысячи", "4 / 9"])
+
+    def test_small_numbered_gutter_can_contain_one_damaged_third_ordinal(self):
+        values = ["-12,5 %", "+12,5 %", "-1,25 %", "+1,25 %"]
+        fields = [[part(label, 5, y=1, w=7, h=10), part(value, 37, w=73, h=17)]
+                  for label, value in zip(("1", "2", "з", "4"), values)]
+        self.assertEqual(read(option("Изменение баланса?"), fields)[1:], values)
+        self.assertEqual(numbered_gutter_texts(fields), values)
+        for bad_mark in ("5", "A", "9"):
+            fields[2][0]["text"] = bad_mark
+            self.assertIsNone(numbered_gutter_texts(fields))
+        fields[2][0]["text"] = "Е"
+        fields[2][0]["h"] = fields[2][1]["h"]
+        self.assertIsNone(numbered_gutter_texts(fields))
+        fields[2][0]["h"] = 10
+        fields[2][1]["x"] = 14
+        self.assertIsNone(numbered_gutter_texts(fields))
+        self.assertIsNone(numbered_gutter_texts(fields[:2]))
 
     def test_percentage_with_and_without_fused_ordinals(self):
         options = [[part('1', 10, w=5), part('2%', 35, w=31)],

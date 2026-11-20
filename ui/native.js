@@ -14,7 +14,6 @@ let busy = false;
 let changingMode = false;
 let modeVersion = 0;
 let resultKey = "";
-let lastFields = null;
 let previous = loadPreferences();
 
 function loadPreferences() {
@@ -237,7 +236,9 @@ function draw(event) {
 
 function clearResult() {
   resultKey = "";
-  lastFields = null;
+  window.QuizChart?.show(null);
+  el("reading-warnings").replaceChildren();
+  el("reading-warnings").hidden = true;
   el("review").hidden = true;
   el("answer-proof").hidden = true;
   ["answer", "evidence", "state", "current-question"].forEach(id => { el(id).textContent = ""; });
@@ -250,19 +251,37 @@ function present(data) {
   resultKey = key;
   const answer = data.answer || {};
   const options = data.options || [];
+  const warnings = data.readingWarnings || [];
+  const warningBox = el("reading-warnings");
+  warningBox.hidden = !warnings.length;
+  warningBox.replaceChildren(...warnings.map(item => {
+    const line = document.createElement("div");
+    const label = document.createElement("p");
+    const field = item.field === 0 ? "Вопрос" : "Вариант " + item.field;
+    label.textContent = field + " · «" + item.readings[0] + "» или «" + item.readings[1] + "»";
+    line.append(label);
+    if (item.image?.startsWith("data:image/png;base64,")) {
+      const image = new Image();
+      image.alt = "Фрагмент окна для сверки";
+      image.src = item.image;
+      line.append(image);
+    }
+    return line;
+  }));
+  const needsFigure = window.QuizChart?.show(warnings.length ? null : data.question || null);
   const choices = answer.choices || (answer.choice ? [answer.choice] : []);
   const valid = Array.isArray(choices) && choices.length > 0 && new Set(choices).size === choices.length
     && choices.every(choice => Number.isInteger(choice) && choice >= 1 && choice <= options.length)
     && (!data.expectedCount || choices.length === data.expectedCount)
     && (data.selectionMode !== "multiple" || choices.every(choice =>
       answer.evidence?.some(item => item.choice === choice && item.excerpt && item.source)));
-  const confirmed = valid ? choices : [];
+  const pendingFigure = Boolean(needsFigure && answer.kind === "model");
+  const confirmed = valid && !pendingFigure ? choices : [];
   const proof = confirmed.length ? answerProof(answer, options) : {};
   const proofLine = el("answer-proof");
   proofLine.hidden = !proof.note;
   proofLine.textContent = proof.note || "";
   proofLine.className = proof.tentative ? "problem-text" : "answer-text";
-  lastFields = data.question && validFields(options.length + 1) ? {question:data.question,options} : null;
   el("review").hidden = !answer.journalId;
   if (answer.journalId) el("review").href = "/journal#" + encodeURIComponent(answer.journalId);
   el("answer").replaceChildren(...confirmed.map(choice => {
@@ -272,7 +291,8 @@ function present(data) {
   }));
   const modeLabel = data.selectionMode === "multiple"
     ? (data.expectedCount ? "Выбрать " + data.expectedCount : "Множественный выбор") : "";
-  const timing = confirmed.length ? "Ответ за " + data.elapsed + " с" : answer.detail || data.message;
+  const timing = pendingFigure ? "Для ответа нужны значения на изображении. Открой разбор графика или таблицы."
+    : confirmed.length ? "Ответ за " + data.elapsed + " с" : answer.detail || data.message;
   el("state").textContent = [modeLabel, timing, formatQuizTokenUsage(answer.tokenUsage), answer.journalWarning].filter(Boolean).join(" · ");
   let evidence = (answer.evidence || []).filter(item => confirmed.includes(item.choice));
   if (!evidence.length && (answer.source || answer.excerpt)) {
@@ -435,7 +455,6 @@ el("visual").addEventListener("click", event => {
   if (!token) return;
   event.preventDefault();
   const id = el("windows").value;
-  const fields = lastFields;
   const opened = openQuizVisual(async () => {
     const response = await call("/api/native/preview?id=" + encodeURIComponent(id));
     const blob = await response.blob();
@@ -445,7 +464,9 @@ el("visual").addEventListener("click", event => {
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(blob);
     });
-    return {image, ...(fields || {})};
+    // The native picker takes a fresh snapshot after the click. A timer may already
+    // have advanced the quiz; let the visual page read its fields from that same image.
+    return {image};
   });
   if (!opened) el("state").textContent = "Разреши открыть вкладку для разбора графика.";
 });

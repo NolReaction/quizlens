@@ -231,7 +231,7 @@ async function runCheck(withOCR) {
       ? item.builtIn && item.name === 'analytics-demo.txt' : item.id === bank.lectureId);
     if (checkAnswers && !notebook) throw Error('Не удалось найти встроенную демолекцию. Распакуй полный архив приложения и запусти его снова.');
 
-    let ocrCompleted = 0, exactCount = 0, typographyCount = 0, solved = 0, correct = 0;
+    let ocrCompleted = 0, exactCount = 0, typographyCount = 0, disputed = 0, solved = 0, correct = 0;
     const ocrTimes = [];
     let ocrFailure = '', modelFailure = '';
     if (model) el('message').textContent = 'Модель для проверки — ' + model;
@@ -275,6 +275,15 @@ async function runCheck(withOCR) {
         const warning = !exact && !typographyOnly && !matchedLectureTerms;
         detail(row, stageLabel + ' · ' + seconds(ocrMs) + ' · ' + verdict, exact ? 'ok' : (warning ? 'warn' : ''));
         differences.forEach(field => showChangedField(row, field.index, field.expected, field.read));
+        if (read.value.readingWarnings?.length) {
+          disputed++;
+          for (const warning of read.value.readingWarnings) {
+            const name = warning.field === 0 ? 'Вопрос' : 'Вариант ' + warning.field;
+            detail(row, name + ' · чтения расходятся: ' + warning.readings.join(' / '), 'warn');
+          }
+          if (checkAnswers) detail(row, 'Ответ отложен до проверки текста.');
+          continue;
+        }
         if (texts.some(text => !text.trim())) {
           if (checkAnswers) detail(row, 'Поиск и ответ пропущены. Не все области распознаны.', 'warn');
           continue;
@@ -331,6 +340,7 @@ async function runCheck(withOCR) {
     if (withOCR) {
       summary.push('OCR завершён для ' + ocrCompleted + ' из ' + items.length + ' вопросов.');
       if (ocrCompleted) summary.push('Текст совпал в ' + exactCount + ' из ' + ocrCompleted + ' распознанных кадров.');
+      if (disputed) summary.push('Кадров для сверки — ' + disputed + '.');
       if (typographyCount) summary.push('Кадров только с типографическими отличиями — ' + typographyCount + '.');
       const laterMax = Math.max(...ocrTimes.slice(1));
       if (ocrTimes.length > 1 && ocrTimes[0] > laterMax * 1.5 && ocrTimes[0] - laterMax > 400) {

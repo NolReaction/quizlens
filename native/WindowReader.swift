@@ -34,6 +34,7 @@ private struct TextLine: Encodable {
     let y: CGFloat
     let w: CGFloat
     let h: CGFloat
+    let readingWarning: ReadingWarning?
 }
 
 private struct OCRFrame: Encodable {
@@ -141,6 +142,7 @@ private func recognize(_ image: CGImage, regions: [Region], languages: [String],
     let height = CGFloat(image.height)
     let bounds = CGRect(x: 0, y: 0, width: width, height: height)
     var result: [TextLine] = []
+    var budget = 2
     for (index, region) in regions.enumerated() {
         let proposed = CGRect(x: region.x * width, y: region.y * height,
                               width: region.w * width, height: region.h * height)
@@ -160,14 +162,15 @@ private func recognize(_ image: CGImage, regions: [Region], languages: [String],
         let handler = VNImageRequestHandler(cgImage: crop, options: [:])
         try handler.perform([request])
         let observations = request.results ?? []
-        let fragments: [(text: String, box: CGRect)]
+        let concerns = verifyCriticalReadings(observations, image: crop, languages: languages, budget: &budget)
+        let fragments: [(text: String, box: CGRect, source: VNRecognizedTextObservation)]
         if wholeWindow {
             fragments = layoutFragments(observations, aspect: width / height)
         } else {
             fragments = observations.compactMap { observation in
                 guard let candidate = observation.topCandidates(1).first else { return nil }
                 let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.isEmpty ? nil : (text: text, box: observation.boundingBox)
+                return text.isEmpty ? nil : (text: text, box: observation.boundingBox, source: observation)
             }
         }
         let lines = fragments.map { fragment in
@@ -177,7 +180,8 @@ private func recognize(_ image: CGImage, regions: [Region], languages: [String],
                             x: (rect.minX + box.minX * rect.width) / width,
                             y: (rect.minY + (1 - box.maxY) * rect.height) / height,
                             w: box.width * rect.width / width,
-                            h: box.height * rect.height / height)
+                            h: box.height * rect.height / height,
+                            readingWarning: warningInside(concerns[ObjectIdentifier(fragment.source)], fragment: box))
         }
         // Group neighboring fragments before sorting by x, including mixed Russian/Latin text.
         var rows: [[TextLine]] = []

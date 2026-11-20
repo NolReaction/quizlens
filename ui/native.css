@@ -46,3 +46,8 @@ body.reading .top, body.reading .page-title { display:none; }
 #native-main .native-transcript { border-top:1px solid var(--border); margin-top:16px; padding-top:12px; }
 #native-main .native-transcript h2 { font-size:1rem; }
 #native-main #setup + .answer-setting { margin-top:16px; }
+
+#reading-warnings { margin:.7rem 0; border-left:3px solid var(--sub); padding:0 .8rem; }
+#reading-warnings p { margin:.35rem 0; overflow-wrap:anywhere; }
+#reading-warnings img { display:block; max-width:100%; object-fit:contain; max-height:5rem; }
+#visualPrompt { flex-basis:100%; margin:.2rem 0; }

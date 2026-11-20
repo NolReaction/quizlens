@@ -43,6 +43,15 @@ def smoke(archive, signing):
         else:
             raise ValueError("Run the ZIP on its target operating system")
 
+        extension = folder / "browser-extension"
+        manifest = json.loads((extension / "manifest.json").read_bytes())
+        if manifest["version"] != expected or manifest["manifest_version"] != 3:
+            raise ValueError("Wrong extension in the packaged archive")
+        for script in (manifest["action"]["default_popup"], manifest["background"]["service_worker"],
+                       "reader.js", "receiver.js", "popup.js", "popup.css"):
+            if not (extension / script).is_file():
+                raise ValueError(f"Missing packaged extension file: {script}")
+
         log = work / "server.log"
         # Relative data path keeps cmd.exe arguments independent of spaces in TEMP.
         with log.open("wb") as output:
@@ -89,7 +98,7 @@ def smoke(archive, signing):
                 with local.open(url + path, timeout=7) as response:
                     if response.status != 200 or b"<!doctype html>" not in response.read().lower():
                         raise ValueError(f"Could not open {path}")
-            for path in ("/demo-window.js", "/capture.css", "/train.js", "/token-usage.js"):
+            for path in ("/demo-window.js", "/capture.css", "/train.js", "/token-usage.js", "/chart-assist.js", "/tab-reader.js", "/tab-reader-help.html"):
                 with local.open(url + path, timeout=7) as response:
                     if response.status != 200 or not response.read(1):
                         raise ValueError(f"Missing UI asset: {path}")

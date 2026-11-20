@@ -40,9 +40,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y tesseract-ocr-eng tesseract-ocr-rus tesseract-ocr fonts-dejavu-core poppler-utils
+          sudo apt-get install -y tesseract-ocr-eng tesseract-ocr-rus tesseract-ocr fonts-dejavu-core poppler-utils xvfb xauth xdotool
       - name: Run application tests
         run: python -m unittest discover -s tests
+      - name: Verify OCR on unseen quiz layouts and publish measurements
+        if: runner.os == 'Linux'
+        run: |
+          python tests/vision_benchmark.py --check --json "$RUNNER_TEMP/vision-report.json"
+      - name: Save OCR readings and timing
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7.0.0
+        with:
+          name: vision-report
+          path: ${{ runner.temp }}/vision-report.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Run interface tests
         run: node --test tests/*.cjs
       - name: Check first-run screens in Chrome on desktop and mobile widths
@@ -50,6 +62,11 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check playwright==1.56.0
           python tests/browser/onboarding.py --screenshots "$RUNNER_TEMP/quizlens-screens"
+      - name: Exercise the tab reader with real activeTab permissions in Chromium
+        if: runner.os == 'Linux'
+        run: |
+          python -m playwright install chromium
+          xvfb-run -a python tests/browser/extension_capture.py
       - name: Save first-run screenshots
         if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

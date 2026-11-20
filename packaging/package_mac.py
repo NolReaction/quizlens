@@ -61,7 +61,7 @@ def copy_inputs(root, resources):
     repo = root / "packaging" / "REPOSITORY"
     if repo.is_file():
         shutil.copyfile(repo, destination / "REPOSITORY")
-    for name in ("app.py", "engine.py", "ocr.py", "ocr_terms.py", "numeric_evidence.py", "ocr_layout.py", "auto_layout.py", "quiz_mode.py",
+    for name in ("app.py", "engine.py", "ocr.py", "ocr_terms.py", "ocr_review.py", "numeric_evidence.py", "ocr_layout.py", "auto_layout.py", "quiz_mode.py",
                  "journal.py", "visual.py", "training.py", "advisor.py", "model_bench.py",
                  "ui/setup.html", "ui/setup.js", "ui/setup.css", "ui/visual-transfer.js",
                  "ui/index.html", "ui/app.js", "ui/journal.html", "ui/journal.js", "ui/journal.css",
@@ -174,6 +174,13 @@ def package(root, target, settings=None):
         folder = work / "QuizLens-Mac"
         folder.mkdir()
         app = make_bundle(root, folder, settings)
+        extension = root / "browser-extension"
+        target_extension = folder / extension.name
+        target_extension.mkdir()
+        shutil.copy(extension / "manifest.json", target_extension)
+        for file in extension.iterdir():
+            if file.is_file() and file.suffix in {".html", ".css", ".js", ".png"}:
+                shutil.copy(file, target_extension)
         guide = root / "docs/GUIDE.md"
         shutil.copyfile(guide, folder / "README.md")
         archive = work / "package.zip"

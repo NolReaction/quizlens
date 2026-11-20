@@ -166,6 +166,36 @@ def percent_badge_splits(options):
     return splits
 
 
+def numbered_gutter_texts(fields):
+    """Remove detached, smaller ordinals only when all choices share the same gutter."""
+    if not 4 <= len(fields) <= 8:
+        return None
+    values, gutters = [], []
+    for number, parts in enumerate(fields, 1):
+        if len(parts) < 2:
+            return None
+        mark = min(parts, key=lambda p: p["x"])
+        glyph = mark["text"]
+        # A lower-case Cyrillic з resembles a 3; a tiny 3 can also be read as Е.
+        # The other ordinals, font scale and spacing must all corroborate it.
+        if glyph != str(number) and not (number == 3 and glyph in ("з", "З", "Е", "E")):
+            return None
+        body = [part for part in parts if part is not mark]
+        text = _join(body)
+        height = max(p["h"] for p in body)
+        gap = min(p["x"] for p in body) - mark["x"] - mark["w"]
+        if (not text or _UNIT.fullmatch(text) or not .35 * height <= mark["h"] <= .84 * height
+                or gap < .82 * height or mark["w"] > 1.1 * mark["h"]):
+            return None
+        if _INFIX.match(text) and not re.fullmatch(r"[−—–+-]\s*\d+(?:[.,]\d+)?\s*[%‰]?", text):
+            return None
+        gutters.append(gap / height)
+        values.append(text)
+    if max(gutters) > 1.8 * min(gutters) or len({t.casefold() for t in values}) != len(values):
+        return None
+    return values
+
+
 def _overlapping_percent_artifact(parts):
     # Tesseract can report the lower loop of '%' a second time as a tiny digit, letter or degree sign.
     # Only remove it when it overlaps the already recognized percent glyph.
@@ -194,6 +224,9 @@ def ocr_texts(groups):
     if sum(bool(_PERCENT.fullmatch(value)) for value in texts[1:]) >= 2:
         options = [parts[:1] if _overlapping_percent_artifact(parts) else parts for parts in options]
         texts[1:] = [_join(parts) for parts in options]
+    numbered = numbered_gutter_texts(options)
+    if numbered:
+        return [texts[0], *numbered]
     badges = [_badge_candidate(parts, i) for i, parts in enumerate(options, 1)]
     for index, (value, _) in percent_badge_splits(options).items():
         badges[index] = (value, True, False)

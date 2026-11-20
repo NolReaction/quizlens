@@ -4,7 +4,7 @@ import math
 import re
 from statistics import median
 
-from ocr_layout import percent_badge_splits
+from ocr_layout import numbered_gutter_texts, percent_badge_splits
 from quiz_mode import checkbox_prefix, clean_options, instruction_only, selection_hint
 
 
@@ -132,7 +132,7 @@ def _lines(parts, aspect):
             # Separate columns, even when their text sits on the same baseline.
             # A smaller digit in its own gutter may be the card's ordinal.
             # Keeping it as a separate box retains evidence lost by concatenation.
-            separate_badge = (len(group) == 1 and re.fullmatch(r'[1-8A-HАБВГДЕЖЗ]', group[0].text)
+            separate_badge = (len(group) == 1 and re.fullmatch(r'[1-8A-HАБВГДЕЖЗз]', group[0].text)
                               and group[0].h < .87 * span.h
                               and span.x - group[0].right >= .85 * group[0].w)
             if group and (separate_badge or span.x - group[-1].right > 1.6 * max(span.h, group[-1].h)):
@@ -411,6 +411,7 @@ def _unmarked(lines, question, aspect):
     # Establish visual order from column membership, matching _extract.
     anchors = [col[i] for i in range(max(map(len, sorted_cols))) for col in sorted_cols if i < len(col)]
     fields = [[vars(badge_targets[s]), vars(s)] if s in badge_targets else [vars(s)] for s in anchors]
+    numbered = numbered_gutter_texts(fields)
     text_anchors = anchors.copy()
     for i, (value, start) in percent_badge_splits(fields).items():
         span = anchors[i]
@@ -426,7 +427,7 @@ def _unmarked(lines, question, aspect):
         return result
     for i,s in enumerate(anchors):
         marks = [_mark(Span(s.text, s.x, s.y, s.w, s.h),series) for series in _SERIES]
-        if s in badge_targets:
+        if s in badge_targets and not numbered:
             if not any(m and m[0]==i for m in (_mark(badge_targets[s], k) for k in _SERIES)):
                 return None
         # Strip an explicit punctuation-prefixed label when others were missed;

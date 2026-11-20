@@ -1,7 +1,7 @@
 'use strict';
 const el = id => document.getElementById(id);
 const state = {page:'practice', items:[], index:0, full:null, rect:null, drag:null, cropping:false,
-  stream:null, epoch:0, imageVersion:0, sourceVersion:0, busy:false};
+  stream:null, pendingImage:false, epoch:0, imageVersion:0, sourceVersion:0, busy:false};
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -40,7 +40,7 @@ async function loadModels() {
     if (!models.length) el('model').add(new Option('Модель не выбрана', ''));
     else if (models.includes(previous)) el('model').value = previous;
     el('modelStatus').textContent = models.length ? 'Модель получит изображение на этом компьютере.' :
-      'Для разбора своего кадра загрузи в Bionic модель с поддержкой изображений и нажми «Обновить». Примеры можно решать самостоятельно.';
+      'Для разбора своего кадра загрузи в LM Studio или Bionic модель с поддержкой изображений и нажми «Обновить». Примеры можно решать самостоятельно.';
   } catch (error) {
     el('model').replaceChildren(new Option('Сервер недоступен', ''));
     el('modelStatus').textContent = error.message + ' Примеры доступны без модели.';
@@ -163,10 +163,15 @@ function showPhoto() {
   el('photoBox').hidden=el('cropActions').hidden=false;el('crop').textContent='Обрезать кадр';invalidate();
 }
 function setPhoto(full, question='', options=[]) {
+  if (state.pendingImage && !question) {
+    question = el('manualQ').value.trim();
+    options = el('manualOptions').value.split('\n').map(line => line.trim()).filter(Boolean);
+  }
+  state.pendingImage=false;
   state.full=full;state.rect=null;
   el('manualQ').value=question;el('manualOptions').value=options.join('\n');
   el('wording').open=Boolean(question && options.length);
-  el('photoStatus').textContent='Этот кадр готов к разбору. Можно обвести нужную область.';
+  el('photoStatus').textContent='Проверь, что видны деления осей, легенда или заголовки таблицы. Область для разбора можно обрезать.';
   showPhoto();
 }
 async function openImage(url, question, options) {
@@ -227,16 +232,26 @@ el('crop').onclick=()=>{
 el('resetCrop').onclick=()=>{state.rect=null;showPhoto();};
 function showAnswer(answer, duration, item) {
   const box=el('answerPanel');box.replaceChildren();
-  if (!answer.choices?.length)box.append(element('p',answer.detail || 'Недостаточно данных.'));
-  else {
-    box.append(element('h2','Ответ модели · '+answer.choices.join(', ')));
+  if (answer.choices?.length) {
+    box.append(element('h2',(answer.equation ? 'Ответ по расчёту · ' : 'Ответ модели · ') + answer.choices.join(', ')));
     const list=document.createElement('ul');
     answer.choices.forEach(n=>list.append(element('li',answer.options[n-1])));
-    box.append(list,element('p','Модель прочитала на изображении'),element('p',answer.observation));
-    if(item){
-      const ok=answer.choices.length===item.choices.length && item.choices.every(n=>answer.choices.includes(n));
-      box.append(element('p',ok?'Совпало с эталоном.':'Эталон · '+item.choices.join(', ')+'. '+item.explanation));
+    box.append(list);
+  } else box.append(element('p',answer.detail || 'Недостаточно данных.'));
+  if (answer.readings?.length) {
+    box.append(element('h3','Значения с изображения'));
+    const list=document.createElement('dl');
+    list.className='figure-readings';
+    for (const row of answer.readings) {
+      list.append(element('dt',row.label),element('dd',(row.estimated?'≈ ':'') + row.value + ' ' + row.unit));
     }
+    box.append(list);
+  }
+  if (answer.equation) box.append(element('p',answer.equation,'equation'));
+  if (answer.observation) box.append(element('p','Модель прочитала на изображении'),element('p',answer.observation));
+  if (item && answer.choices?.length) {
+    const ok=answer.choices.length===item.choices.length && item.choices.every(n=>answer.choices.includes(n));
+    box.append(element('p',ok?'Совпало с эталоном.':'Эталон · '+item.choices.join(', ')+'. '+item.explanation));
   }
   box.append(element('p','Запрос и ответ · '+(duration/1000).toLocaleString('ru-RU',{maximumFractionDigits:1})+' с','time'));
 }
@@ -285,9 +300,22 @@ if(location.hash==='#capture') {
     window.addEventListener('message',function receive(event) {
       if(event.origin!==location.origin || event.source!==opener || event.data?.type!=='quizlens-visual-frame')return;
       window.removeEventListener('message',receive);
-      const {image,question,options}=event.data;
+      if (state.sourceVersion || state.full || state.imageVersion || state.page!=='custom') return;
+      const {image,question,options,selectionMode}=event.data;
+      const valid=typeof question==='string' && question.trim().length>0 && question.length<=6000 &&
+        Array.isArray(options) && options.length>=2 && options.length<=8 &&
+        options.every(s=>typeof s==='string' && s.trim().length>0 && s.length<=900);
+      if (['auto','single','multiple'].includes(selectionMode)) el('selection').value=selectionMode;
+      if (!image && valid) {
+        state.pendingImage=true;
+        el('manualQ').value=question;
+        el('manualOptions').value=options.join('\n');
+        el('wording').open=true;
+        el('photoStatus').textContent='Вопрос и варианты получены. Добавь изображение той же задачи с подписями и данными.';
+        invalidate();
+        return;
+      }
       if(typeof image!=='string'||image.length>14*1024*1024||!/^data:image\/(?:jpeg|png);base64,/.test(image))return;
-      const valid=typeof question==='string'&&Array.isArray(options)&&options.length>=2&&options.length<=8&&options.every(s=>typeof s==='string');
       openImage(image,valid?question:'',valid?options:[]).catch(()=>{el('photoStatus').textContent='Не удалось открыть кадр. Выбери окно или файл.';});
     });
     opener.postMessage({type:'quizlens-visual-ready'},location.origin);

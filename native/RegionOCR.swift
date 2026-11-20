@@ -22,6 +22,7 @@ struct Fragment: Encodable {
     let y: CGFloat
     let w: CGFloat
     let h: CGFloat
+    var readingWarning: ReadingWarning? = nil
 }
 struct Reply: Encodable {
     var stage: String?
@@ -74,7 +75,8 @@ func pixelRect(_ region: Region, image: CGImage) throws -> CGRect {
         .intersection(CGRect(x: 0, y: 0, width: width, height: height))
 }
 
-private func orderedParts(_ observations: [VNRecognizedTextObservation]) -> [Fragment] {
+private func orderedParts(_ observations: [VNRecognizedTextObservation],
+                          _ concerns: [ObjectIdentifier: VisionConcern]) -> [Fragment] {
     // Vision uses y=0 at the bottom. Group fragments of a line before ordering by x.
     var rows: [[VNRecognizedTextObservation]] = []
     for observation in observations.sorted(by: { $0.boundingBox.midY > $1.boundingBox.midY }) {
@@ -91,16 +93,21 @@ private func orderedParts(_ observations: [VNRecognizedTextObservation]) -> [Fra
             guard let text = observation.topCandidates(1).first?.string,
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             let box = observation.boundingBox
-            return Fragment(text: text, x: box.minX, y: 1 - box.maxY, w: box.width, h: box.height)
+            return Fragment(text: text, x: box.minX, y: 1 - box.maxY, w: box.width, h: box.height,
+                            readingWarning: concerns[ObjectIdentifier(observation)]?.warning)
         }
 }
 
-private func croppedText(_ image: CGImage, _ rect: CGRect, _ request: VNRecognizeTextRequest) throws -> [Fragment] {
+private func croppedText(_ image: CGImage, _ rect: CGRect, _ request: VNRecognizeTextRequest,
+                         budget: inout Int) throws -> [Fragment] {
     guard let cropped = image.cropping(to: rect.integral) else {
         throw ReadFailure("Не удалось вырезать область текста.")
     }
     try VNImageRequestHandler(cgImage: cropped, orientation: .up, options: [:]).perform([request])
-    return orderedParts(request.results ?? [])
+    let observations = request.results ?? []
+    let concerns = verifyCriticalReadings(observations, image: cropped,
+                                         languages: request.recognitionLanguages, budget: &budget)
+    return orderedParts(observations, concerns)
 }
 
 private func isPackedStrip(_ rects: [CGRect], width: CGFloat, height: CGFloat) -> Bool {
@@ -116,7 +123,8 @@ private func isPackedStrip(_ rects: [CGRect], width: CGFloat, height: CGFloat) -
     return true
 }
 
-private func packedTexts(_ image: CGImage, _ rects: [CGRect], _ request: VNRecognizeTextRequest) throws -> [[Fragment]?] {
+private func packedTexts(_ image: CGImage, _ rects: [CGRect], _ request: VNRecognizeTextRequest,
+                         budget: inout Int) throws -> [[Fragment]?] {
     let width = CGFloat(image.width), height = CGFloat(image.height)
     // minimumTextHeight is relative to the input image. Preserve the smallest
     // text that was eligible in any one of the individual strips.
@@ -143,9 +151,11 @@ private func packedTexts(_ image: CGImage, _ rects: [CGRect], _ request: VNRecog
             ambiguous.formUnion(touched)
         }
     }
+    let concerns = verifyCriticalReadings(request.results ?? [], image: image,
+                                         languages: request.recognitionLanguages, budget: &budget)
     return rects.indices.map { index -> [Fragment]? in
         guard !ambiguous.contains(index) else { return nil }
-        let parts = orderedParts(groups[index])
+        let parts = orderedParts(groups[index], concerns)
         return parts.isEmpty ? nil : parts
     }
 }
@@ -153,15 +163,16 @@ private func packedTexts(_ image: CGImage, _ rects: [CGRect], _ request: VNRecog
 func recognize(_ frame: Frame, with request: VNRecognizeTextRequest) throws -> [[Fragment]] {
     guard (3...9).contains(frame.regions.count) else { throw ReadFailure("Нужны области вопроса и 2–8 вариантов.") }
     let image = try imageFromFrame(frame.image).image
+    var budget = 2
     let rects = try frame.regions.map { try pixelRect($0, image: image) }
     if isPackedStrip(rects, width: CGFloat(image.width), height: CGFloat(image.height)),
-       let texts = try? packedTexts(image, rects, request) {
+       let texts = try? packedTexts(image, rects, request, budget: &budget) {
         return try rects.indices.map { index in
             if let text = texts[index] { return text }
-            return try croppedText(image, rects[index], request)
+            return try croppedText(image, rects[index], request, budget: &budget)
         }
     }
-    return try rects.map { try croppedText(image, $0, request) }
+    return try rects.map { try croppedText(image, $0, request, budget: &budget) }
 }
 
 private struct FrameHeader: Decodable {
@@ -243,9 +254,14 @@ private func runWorker() throws {
                 request.minimumTextHeight = 0.003
                 defer { request.minimumTextHeight = previousMinimum }
                 try VNImageRequestHandler(cgImage: frame.image, orientation: .up, options: [:]).perform([request])
-                let boxes = layoutFragments(request.results ?? [], aspect: frame.aspect).map { part in
+                let observations = request.results ?? []
+                var budget = 2
+                let concerns = verifyCriticalReadings(observations, image: frame.image,
+                                                     languages: request.recognitionLanguages, budget: &budget)
+                let boxes = layoutFragments(observations, aspect: frame.aspect).map { part in
                     Fragment(text: part.text, x: part.box.minX, y: 1 - part.box.maxY,
-                             w: part.box.width, h: part.box.height)
+                             w: part.box.width, h: part.box.height,
+                             readingWarning: warningInside(concerns[ObjectIdentifier(part.source)], fragment: part.box))
                 }
                 try emit(Reply(observations: boxes, aspect: frame.aspect))
             } else {
