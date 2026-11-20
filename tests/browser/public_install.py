@@ -67,7 +67,8 @@ def check_page(browser, origin, viewport):
             assert states == [["false", True, False], ["true", False, False]]
             page.emulate_media(reduced_motion="reduce")
             expect(nav).to_be_visible()
-            assert nav.evaluate("el => el.getAnimations().length") == 0
+            # The media-query change listener runs on the browser's next rendering update.
+            page.wait_for_function("el => el.getAnimations().length === 0", arg=nav.element_handle())
         nav.get_by_role("link", name="Расширение").click()
         extension = page.locator("#extension")
         expect(extension).to_be_in_viewport()
