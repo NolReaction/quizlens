@@ -199,11 +199,18 @@ private func visibleEquals(_ image: CGImage) -> Bool {
                               space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue),
           let pointer = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return false }
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-    let pixels = withExtendedLifetime(ctx) { Array(UnsafeBufferPointer(start: pointer, count: w*h)) }
+    let pixels: [UInt8] = withExtendedLifetime(ctx) { Array(UnsafeBufferPointer(start: pointer, count: w*h)) }
     guard let darkest = pixels.min(), let brightest = pixels.max() else { return false }
     let low = Double(darkest), high = Double(brightest)
     guard high-low >= 48 else { return false }
-    let border = (0..<h).flatMap { [pixels[$0*w], pixels[$0*w+w-1]] }.sorted()
+    var border: [UInt8] = []
+    border.reserveCapacity(2 * h)
+    for row in 0..<h {
+        let start = row * w
+        border.append(pixels[start])
+        border.append(pixels[start + w - 1])
+    }
+    border.sort()
     let lightBackground = Double(border[h]) >= (low+high)/2
     for fraction in [0.40, 0.66] {
         let threshold = lightBackground ? high-fraction*(high-low) : low+fraction*(high-low)
@@ -231,10 +238,13 @@ private func visibleEquals(_ image: CGImage) -> Bool {
             }
         }
         let width = Double(maxX-minX+1)
-        guard bands.count == 2, width >= 5, width-Double(shortest) <= max(2, 0.18*width) else { return false }
+        let maxMissing = max(2.0, 0.18 * width)
+        guard bands.count == 2, width >= 5, width - Double(shortest) <= maxMissing else { return false }
         let a = bands[0], b = bands[1]
-        if Double(max(a.count, b.count)) > 0.38*width || min(a.count, b.count)*2 < max(a.count, b.count)
-            || Double(b.lowerBound-a.upperBound) > 0.8*width { return false }
+        let thicker = max(a.count, b.count)
+        let thinner = min(a.count, b.count)
+        let gap = b.lowerBound - a.upperBound
+        if Double(thicker) > 0.38 * width || thinner * 2 < thicker || Double(gap) > 0.8 * width { return false }
     }
     return true
 }

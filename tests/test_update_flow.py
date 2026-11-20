@@ -55,6 +55,20 @@ def fetch_official(url, limit):
     return "".join(lines[:entry.lineno - 1]) + offline + "".join(lines[entry.lineno - 1:])
 
 
+def trace_startup(source, module):
+    # Only the synthetic package is instrumented. Include both stacks if a child never binds.
+    hook = f"""
+if __name__ == "__main__":
+    import faulthandler
+    import os
+    print("Update test launched {module}, pid", os.getpid(), flush=True)
+    faulthandler.dump_traceback_later(10, repeat=True)
+"""
+    marker = "from __future__ import annotations\n"
+    assert source.count(marker) == 1
+    return source.replace(marker, marker + hook)
+
+
 def make_release(template, output, feed, version, broken=False):
     # Reuse exactly the files selected by the production packager, including its real UI and journal.
     with zipfile.ZipFile(template) as original, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as bundle:
@@ -66,9 +80,16 @@ def make_release(template, output, feed, version, broken=False):
             if name == BUNDLE + "packaging/VERSION":
                 contents = (version + "\n").encode("ascii")
             elif name == BUNDLE + "updater.py":
-                contents = fixture_transport(contents.decode("utf-8"), feed).encode("utf-8")
-            elif broken and name == BUNDLE + "app.py":
-                contents = b"raise SystemExit('Deliberate startup failure in test fixture')\n"
+                source = fixture_transport(contents.decode("utf-8"), feed)
+                contents = trace_startup(source, "supervisor").encode("utf-8")
+            elif name == BUNDLE + "app.py":
+                if broken:
+                    contents = b"raise SystemExit('Deliberate startup failure in test fixture')\n"
+                else:
+                    contents = trace_startup(contents.decode("utf-8"), "server").encode("utf-8")
+            elif name == BUNDLE + "ocr.py" and sys.platform == "darwin":
+                # This Windows archive contains no Apple helpers. The native release smoke tests Vision.
+                contents += b"\n# Windows updater fixture on a Mac runner.\ndef start_prewarm():\n    pass\n"
             bundle.writestr(name, contents)
         bundle.writestr(repository_stamp, REPOSITORY)
 
@@ -140,7 +161,7 @@ class UpdateFlow(unittest.TestCase):
                 pass
             time.sleep(.08)
         self.fail(f"Waiting for {description}; supervisor={self.service.poll()}:\n" +
-                  self.log.read_text(encoding="utf-8", errors="replace")[-2700:])
+                  self.log.read_text(encoding="utf-8", errors="replace")[-6000:])
 
     def request(self, path, *, body=None, text=None):
         contents = json.dumps(body).encode() if body is not None else text
