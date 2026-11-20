@@ -4,6 +4,8 @@ import importlib.util
 from html.parser import HTMLParser
 from pathlib import Path
 import tempfile
+import json
+import zipfile
 import unittest
 
 
@@ -46,10 +48,16 @@ class TestPublicDownload(unittest.TestCase):
                         self.assertIn(href[1:], links.ids)
                     elif href.startswith("./"):
                         self.assertTrue((output / href).exists(), href)
-                    elif href.startswith("https://github.com/"):
+                    elif href.startswith("https://github.com/") and not href.startswith("https://github.com/tesseract-ocr/tesseract/releases/download/"):
                         self.assertTrue(href.startswith(f"https://github.com/{repo}"), href)
                 self.assertIn(f"https://github.com/{repo}/releases", links.hrefs)
                 self.assertIn(f"https://github.com/{repo}/blob/HEAD/docs/GUIDE.md", links.hrefs)
                 self.assertTrue((output / ".nojekyll").is_file())
+                self.assertIn("./QuizLens-Extension.zip", links.hrefs)
+                self.assertTrue({"extension", "components", "windows-ocr"}.issubset(links.ids))
+                with zipfile.ZipFile(output / "QuizLens-Extension.zip") as bundle:
+                    manifest = json.loads(bundle.read("browser-extension/manifest.json"))
+                    for name in (manifest["background"]["service_worker"], manifest["action"]["default_popup"]):
+                        self.assertIn("browser-extension/" + name, bundle.namelist())
             with self.assertRaises(ValueError):
                 builder.build("example/..", output)

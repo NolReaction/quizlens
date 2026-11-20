@@ -186,6 +186,25 @@ class LectureTests(unittest.TestCase):
                 complete.assert_not_called()
             self.assertEqual(solve(card["question"], options[::-1], reader)["choice"], 3)
 
+    def test_two_letter_variables_must_match_a_whole_documented_formula(self):
+        index = LectureIndex(import_document(Path(__file__).resolve().parents[1] / "examples/analytics-demo.quiz.json"))
+        q = "Какое утверждение о Recall и Precision неверно?"
+        card = index.sections[index.cards[q[:-1].casefold()][0]]
+        formula = card["options"][-1]
+        observed = formula.replace("TP", "ТР", 1)
+        other = card["options"][:-1]
+        self.assertEqual(solve(q, [observed, *other], index)["choice"], 4)
+        self.assertEqual(solve(q, [*other, formula.replace("TP", "ТР")], index)["choice"], 3)
+        changed = observed.replace("+", "-")
+        self.assertEqual(index.normalize_ocr_fields([q, changed])[-1], changed)
+        switched = observed.replace("FP", "FN")
+        self.assertEqual(index.normalize_ocr_fields([q, switched])[-1], switched)
+        self.assertEqual(index.normalize_ocr_fields([q, observed, formula]), [q, observed, formula])
+        self.assertEqual(index.normalize_ocr_fields(["Какие буквы кириллические?", observed])[-1], observed)
+        # If that spelling is intentionally part of the source material, leave it intact.
+        conflicting = LectureIndex([card, {**card, "options": [*other, observed]}])
+        self.assertEqual(conflicting.normalize_ocr_fields([q, observed])[-1], observed)
+
     def test_unambiguous_acronym_can_recover_exact_card_without_model(self):
         options = ["API", "Выплата", "Отчёт", "Формат"]
         question = "Какой из вариантов НЕ описывает API?"

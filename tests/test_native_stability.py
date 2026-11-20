@@ -145,6 +145,39 @@ class NativeStabilityTests(unittest.TestCase):
         self.assertEqual(self.session["readingWarnings"], [])
         self.assertNotIn("readingWarnings", self.mode._pending[2])
 
+    def test_manual_confirmation_is_bound_to_revision_fields_and_a_fresh_observation(self):
+        fields = [self.question, *self.options]
+        lines = [dict(region=i, text=text, x=.12, y=.1+i*.16, w=.45, h=.035)
+                 for i, text in enumerate(fields)]
+        lines[3]["readingWarning"] = {"readings": ["+", "-"]}
+        self.mode._handle_frame(self.session, lines)
+        payload = dict(session=self.session["id"], revision=self.session["revision"],
+                       edits=[dict(field=3, text="x + 100")])
+        url = "/api/native/confirm-reading"
+        with self.assertRaises(ValueError):
+            self.mode.post(url, payload)
+        self.mode._handle_frame(self.session, lines)
+        self.assertTrue(self.session["canConfirmReading"])
+        with self.assertRaises(ValueError):
+            self.mode.post(url, dict(payload, edits=[dict(field=2, text="wrong row")]))
+        with self.assertRaises(ValueError):
+            self.mode.post(url, dict(payload, revision=0))
+        self.mode.post(url, payload)
+        self.assertIsNone(self.mode._pending)
+        self.mode._handle_frame(self.session, lines)
+        self.assertEqual(self.mode._pending[2]["options"][2], "x + 100")
+        self.assertFalse(self.session["readingWarnings"])
+        self.mode._pending = None
+        lines[0]["text"] = "Какой новый вопрос?"
+        self.mode._handle_frame(self.session, lines)
+        self.assertFalse(self.session["canConfirmReading"])
+        self.assertIsNone(self.session["confirmedReading"])
+        self.mode._handle_frame(self.session, lines)
+        self.assertTrue(self.session["canConfirmReading"])
+        with self.assertRaises(ValueError):
+            self.mode.post(url, payload)
+        self.assertIsNone(self.mode._pending)
+
     def test_late_result_stays_hidden_and_expires_on_confirmed_switch(self):
         started = threading.Event()
         release = threading.Event()

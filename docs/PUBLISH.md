@@ -64,7 +64,7 @@ git tag -a v1.5.0 -m "QuizLens 1.5.0"
 git push origin v1.5.0
 ```
 
-Процесс **Publish release** (`release.yml`) проверит тег, соберёт приложения и создаст выпуск. В **Releases → Latest → Assets** появятся `QuizLens-Mac.zip`, `QuizLens-Windows.zip`, `QuizLens-Guide.md`, `SHA256SUMS.txt` и `release.json`. Манифест содержит статус Mac-сборки. Открой страницу загрузки, проверь обе кнопки и статус. Для дальнейших обновлений измени `packaging/VERSION`, опубликуй коммит и отправь соответствующий **новый** тег.
+Процесс **Publish release** (`release.yml`) проверит тег, соберёт приложения и создаст выпуск. В **Releases → Latest → Assets** появятся `QuizLens-Mac.zip`, `QuizLens-Windows.zip`, `QuizLens-Extension.zip`, `QuizLens-Guide.md`, `SHA256SUMS.txt` и `release.json`. Манифест содержит статус Mac-сборки. Открой страницу загрузки, проверь кнопки Mac, Windows и расширения и статус. Для дальнейших обновлений измени `packaging/VERSION`, опубликуй коммит и отправь соответствующий **новый** тег.
 
 **Выпуск через ветку.** Если удобнее работать через интерфейс GitHub, открой меню веток над списком файлов на `main`, введи `release/v1.5.0` и создай эту ветку из проверенного коммита. Через Git ту же операцию выполняет команда ниже. Используй один из способов запуска выпуска.
 
@@ -74,7 +74,7 @@ git push origin main:refs/heads/release/v1.5.0
 
 Суффикс ветки должен совпадать с версией в `packaging/VERSION` с префиксом `v`. После прохождения тестов и проверки обоих архивов процесс создаст тег на собранном коммите и опубликует выпуск. Если тег уже указывает на тот же коммит, повторный запуск продолжит публикацию. Если тег указывает на другой коммит, процесс остановится. Для изменённого кода используй новую версию. Ход сборки виден в **Actions → Publish release**.
 
-**Постоянные ссылки.** Для друзей используй адрес Pages. Для ссылки прямо на последнюю сборку можно добавить к адресу GitHub-репозитория `/releases/latest/download/QuizLens-Mac.zip` или `/releases/latest/download/QuizLens-Windows.zip`. Список всех файлов откроется по `/releases/latest`. [Ссылки на выпуски GitHub](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases).
+**Постоянные ссылки.** Для друзей используй адрес Pages. Для ссылки прямо на последнюю сборку можно добавить к адресу GitHub-репозитория `/releases/latest/download/QuizLens-Mac.zip` для Mac, `/releases/latest/download/QuizLens-Windows.zip` для Windows или `/releases/latest/download/QuizLens-Extension.zip` для расширения. На Pages также доступна копия `./QuizLens-Extension.zip`, которая загружается при недоступном API GitHub. Список всех файлов откроется по `/releases/latest`. [Ссылки на выпуски GitHub](https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases).
 
 **Проверка скачанного файла.** Скачай из одного выпуска нужный архив и `SHA256SUMS.txt` и сравни SHA-256 архива со строкой для его имени. На Mac используй `shasum -a 256 QuizLens-Mac.zip`, в Windows PowerShell — `Get-FileHash .\QuizLens-Windows.zip -Algorithm SHA256`. Для статуса Gatekeeper смотри отметку о нотарификации Mac.
 
@@ -93,6 +93,7 @@ node --test tests/*.cjs
 Для разработки текстовых сценариев запусти `python app.py`. Для полной разработки нативного захвата на macOS нужны Apple Command Line Tools. Штатный запуск из исходников — `./launch.command`. Демонстрационные карточки и подбор модели можно проверить без установки весов модели. Для сквозной проверки с моделью включи локальный сервер Bionic или LM Studio.
 
 ```bash
+python packaging/package_extension.py --output dist/QuizLens-Extension.zip
 python packaging/package_windows.py --output dist/QuizLens-Windows.zip
 python packaging/package_mac.py --output dist/QuizLens-Mac.zip
 ```

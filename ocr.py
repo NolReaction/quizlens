@@ -380,7 +380,7 @@ def windows_ocr_status():
         from PIL import Image
     except ImportError:
         return {"state": "failed", "displayDetail": True,
-                "detail": "Для чтения экрана закрой QuizLens, запусти Install-OCR.cmd, затем снова Start.cmd."}
+                "detail": "На главной странице QuizLens установи компоненты OCR. Для ручной установки есть Install-OCR.cmd."}
     try:
         _, languages = _tesseract_config()
     except RuntimeError as exc:
@@ -388,7 +388,7 @@ def windows_ocr_status():
     if languages != "rus+eng":
         available, missing = ("английский", "русский (rus)") if languages == "eng" else ("русский", "английский (eng)")
         return {"state": "partial", "displayDetail": True,
-                "detail": f"OCR готов: {available} язык. Для двуязычных вопросов добавь {missing} в Tesseract и перезапусти QuizLens."}
+                "detail": f"OCR готов: {available} язык. Для двуязычных вопросов добавь {missing} через раздел компонентов на главной странице QuizLens."}
     return {"state": "ready", "displayDetail": True, "detail": "Tesseract готов. Установлены русский и английский языки."}
 
 
@@ -479,8 +479,11 @@ def _verify_lecture_words(pages, groups, binary, vocabulary):
             if not match or not (4 <= part["h"] <= 160 and 8 <= part["w"] <= 800):
                 continue
             candidate = vocabulary.candidate(match[2])
+            check_ending = candidate is None and match[3] == "!"
+            if check_ending:
+                candidate = vocabulary.ending_candidate(match[2])
             if candidate:
-                candidates.append((page, part, match, candidate))
+                candidates.append((page, part, match, candidate, check_ending))
                 if len(candidates) >= 8:
                     break
         if len(candidates) >= 8:
@@ -488,7 +491,7 @@ def _verify_lecture_words(pages, groups, binary, vocabulary):
     if not candidates:
         return
     crops = []
-    for page, part, _, _ in candidates:
+    for page, part, _, _, _ in candidates:
         image = _word_image(page, part)
         histogram = image.histogram()
         if sum(histogram[:128]) > sum(histogram[128:]):
@@ -501,11 +504,13 @@ def _verify_lecture_words(pages, groups, binary, vocabulary):
         readings = _read_tsv(crops, binary, "eng", "8", timeout=1.5)
     except (RuntimeError, OSError, ValueError):
         return  # The primary reading remains available on a slow/busy machine.
-    for (_, part, match, candidate), words in zip(candidates, readings):
+    for (_, part, match, candidate, check_ending), words in zip(candidates, readings):
         text = "".join(w["text"] for w in words)
         read = re.fullmatch(r"[^\w]*([A-Za-z]+)[^\w]*", text)
         if read and read[1].casefold() == candidate:
-            part["text"] = match[1] + read[1] + match[3]
+            if check_ending and (text.endswith("!") or min((w.get("confidence", 0) for w in words), default=0) < 65):
+                continue
+            part["text"] = match[1] + read[1] + ("" if check_ending else match[3])
 
 
 def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
@@ -513,7 +518,7 @@ def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
         from PIL import Image
     except ImportError as exc:
         if sys.platform == "win32":
-            raise RuntimeError("Закрой QuizLens, запусти Install-OCR.cmd и снова открой Start.cmd.") from exc
+            raise RuntimeError("Открой раздел компонентов QuizLens на главной странице и нажми кнопку установки OCR.") from exc
         raise RuntimeError("Для Tesseract нужен Pillow. Установите python3-pil или пакет Pillow через pip.") from exc
     binary, languages = _tesseract_config()
     pages = []

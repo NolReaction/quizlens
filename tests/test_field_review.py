@@ -66,6 +66,30 @@ class CriticalReadingTests(unittest.TestCase):
             self.texts[0], self.groups[0] = first, [word(first, 25)]
             self.assertEqual(self.read(lambda _: [[word(repeated)], [word(repeated)]]), [])
 
+    def test_clear_equals_survives_dash_rereads_and_genuine_disagreements_remain(self):
+        self.texts = ["Precision = TP / (TP + FP)"]
+        self.groups = [[word("=", 96, x=8, y=8, w=9, h=6)]]
+        for mode in ("light", "dark"):
+            background, ink = (248, 42) if mode == "light" else (26, 226)
+            for shape in ("equals", "minus", "unequal", "triple", "dots"):
+                with self.subTest(mode=mode, shape=shape):
+                    page = Image.new("L", (48, 26), background)
+                    draw = ImageDraw.Draw(page)
+                    for y in ((8,) if shape == "minus" else (8, 12)):
+                        draw.line((8, y, 9 if shape == "dots" else 16, y), fill=ink, width=2)
+                    if shape == "unequal":
+                        draw.line((9, 15, 15, 6), fill=ink, width=2)
+                    elif shape == "triple":
+                        draw.line((8, 16, 16, 16), fill=ink)
+                    self.pages = [page]
+                    callback = Mock(return_value=[[word("—")], [word("—")]])
+                    found = self.read(callback)
+                    if shape == "equals":
+                        self.assertEqual(found, [])
+                        callback.assert_not_called()
+                    else:
+                        self.assertEqual(found[0]["readings"], ["=", "—"])
+
     def test_comparison_symbol_is_read_from_same_pixels(self):
         try:
             font = ImageFont.truetype("DejaVuSans.ttf", 26)

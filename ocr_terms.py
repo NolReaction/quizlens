@@ -29,9 +29,21 @@ class OCRVocabulary:
         self.known = known
         self.latin = {word for word in known if word.isascii() and word.isalpha()}
         self.neighbors = defaultdict(list)
+        self.vertical_endings = defaultdict(set)
         for word in self.latin:
             if len(word) >= 6:
                 self.neighbors[(word[:2], len(word))].append(word)
+            for count in (1, 2):
+                if len(word)-count >= 4 and all(c in "il" for c in word[-count:]):
+                    self.vertical_endings[word[1:-count]].add(word)
+
+    def ending_candidate(self, token):
+        # A pair of vertical stems may look like '!' in a bilingual line
+        # ('Веса!' for 'Recall'). The English reread must confirm every letter.
+        if token.casefold() in self.known or token.isascii():
+            return None
+        matches = self.vertical_endings.get(latin_visual_key(token)[1:])
+        return next(iter(matches)) if matches and len(matches) == 1 else None
 
     def candidate(self, token):
         word = token.casefold()

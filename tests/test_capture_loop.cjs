@@ -61,6 +61,7 @@ async function makeSession() {
   });
   vm.runInContext(readFileSync(join(__dirname, '../ui/token-usage.js'), 'utf8'), context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/answer-proof.js'), 'utf8'), context);
+  vm.runInContext(readFileSync(join(__dirname, '../ui/reading-review.js'), 'utf8'), context);
   vm.runInContext(readFileSync(join(__dirname, '../ui/chart-assist.js'), 'utf8'), context);
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
@@ -608,4 +609,50 @@ test('a chart-dependent question offers its image; a subsequent text question re
   read(initial); read(initial);
   assert.equal(port.lookups.length, 1);
   assert.equal(node('visualPrompt').hidden, true);
+});
+
+
+test('persistent disagreement offers editable fields and checks the next frame before solving', async () => {
+  const {port, api, node, read, finish} = await makeSession();
+  const texts = ['Какова доля?', '0.5%', '5%', '10%'];
+  const ambiguous = {readingWarnings:[{field:1,readings:['0.5%', '05%']}]};
+  read(texts,null,ambiguous);
+  assert.equal(port.answers.at(-1).reviewEditor,undefined);
+  read(texts,null,ambiguous);
+  const review=port.answers.at(-1);
+  api.drawAnswer(node('answer'),review);
+  const form=node('answer').children.find(item=>item.tagName==='form');
+  assert.ok(form);
+  const input=form.children[0].children[0];
+  assert.equal(input.value,texts[1]);
+  input.value='5%';
+  await form.listeners.submit({preventDefault(){}});
+  assert.match(form.children.at(-1).textContent,/должны различаться/);
+  input.value='0,5%';
+  read(texts,null,ambiguous);
+  assert.equal(port.answers.at(-1),review);
+  await form.listeners.submit({preventDefault(){}});
+  assert.equal(port.lookups.length,0);
+  read(texts,null,ambiguous);
+  assert.deepEqual([...port.lookups[0].options],['0,5%', '5%', '10%']);
+  read(texts);
+  assert.equal(port.lookups.length,1);
+  const swapped=[texts[0], texts[2], texts[1], texts[3]];
+  read(swapped);
+  await finish(port.lookups[0],1);
+  assert.equal(port.answers.at(-1).tag,undefined);
+  read(swapped);
+  assert.deepEqual([...port.lookups[1].options],swapped.slice(1));
+  assert.throws(()=>review.reviewEditor.confirm([{field:1,text:'stale'}]),/изменился/);
+});
+
+test('switching capture source between editing and verification throws away the correction', async () => {
+  const {port,api,read} = await makeSession();
+  const hint={readingWarnings:[{field:1,readings:['x²','x2']}]};
+  read(initial,null,hint);read(initial,null,hint);
+  port.answers.at(-1).reviewEditor.confirm([{field:1,text:'x³'}]);
+  api.clearWorkflow();
+  read(initial,null,hint);read(initial,null,hint);
+  assert.equal(port.lookups.length,0);
+  assert.ok(port.answers.at(-1).reviewEditor);
 });

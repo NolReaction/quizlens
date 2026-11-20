@@ -7,9 +7,13 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from extension_package import EXTENSION_ARCHIVE, EXTENSION_FILES, extension_archive
+
 ARCHIVES = {
     "QuizLens-Mac.zip": "QuizLens-Mac/QuizLens.app/Contents/Resources/quiz-lens/",
     "QuizLens-Windows.zip": "QuizLens-Windows/app/",
@@ -47,13 +51,22 @@ def assemble(directory, tag, repository, signing):
                 raise ValueError(f"Wrong version in {name}")
             if archive.read(root + "packaging/REPOSITORY").decode("ascii").strip() != repository:
                 raise ValueError(f"Wrong repository in {name}")
+            extension = root.split("/")[0] + "/browser-extension/"
+            for filename in EXTENSION_FILES:
+                shipped = archive.read(extension + filename).replace(b"\r\n", b"\n")
+                source = (ROOT / "browser-extension" / filename).read_bytes().replace(b"\r\n", b"\n")
+                if shipped != source:
+                    raise ValueError(f"Wrong extension file in {name}: {filename}")
+                if name == "QuizLens-Mac.zip" and archive.read(root + "browser-extension/" + filename).replace(b"\r\n", b"\n") != shipped:
+                    raise ValueError(f"The installed Mac application is missing the published extension: {filename}")
             # Windows checkout may have CRLF; compare UTF-8 text rather than newline conventions.
             packaged = archive.read(root.split("/")[0] + "/README.md").decode("utf-8").splitlines()
             if packaged != guide.read_text(encoding="utf-8").splitlines():
                 raise ValueError(f"The guide in {name} differs from the guide at {tag}")
+    (directory / EXTENSION_ARCHIVE).write_bytes(extension_archive(ROOT / "browser-extension"))
     shutil.copyfile(guide, directory / GUIDE)
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    files = {name: digest(directory / name) for name in (*ARCHIVES, GUIDE)}
+    files = {name: digest(directory / name) for name in (*ARCHIVES, EXTENSION_ARCHIVE, GUIDE)}
     manifest = {"version": version, "tag": tag, "repository": repository, "commit": commit,
                 "macos": {"notarized": signing == "notarized"}, "sha256": files.copy()}
     (directory / "release.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -66,6 +79,7 @@ def assemble(directory, tag, repository, signing):
     body = (f"<!-- quizlens-release: {commit} -->\n<!-- quizlens-macos: {signing} -->\n\n"
             f"[Скачать для Mac]({release_url}/QuizLens-Mac.zip) · "
             f"[Скачать для Windows x64]({release_url}/QuizLens-Windows.zip) · "
+            f"[Расширение для Chrome и Edge]({release_url}/{EXTENSION_ARCHIVE}) · "
             f"[Инструкция](https://github.com/{repository}/blob/{tag}/docs/GUIDE.md)\n\n"
             f"{status}\n\nКонтрольные суммы файлов доступны в SHA256SUMS.txt.\n")
     (directory / "release-notes.md").write_text(body, encoding="utf-8")

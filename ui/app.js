@@ -11,7 +11,7 @@ const state = {
   stream:null, regions:[], draftRegions:[], draftDrag:null, lectures:[], selected:new Set(),
   layoutMode:'auto', autoArmed:false, autoFocus:null, focusAspect:0, snapshotAspect:0,
   resumeCalibration:false, shareAttempt:0, tabReading:false, tabFrame:null,
-  previousReading:null, warningKey:null,
+  previousReading:null, warningKey:null, readingReview:null,
   running:false, session:0, signature:null, dirtyFrame:false, lastRead:-Infinity,
   ocrJob:null, solveJob:null, currentKey:null, candidateKey:null, pendingSince:null, displayedKey:null,
   captureTrace:[], candidateSeenAt:null, firstSeenAt:null, confirmedTexts:null, captureIssue:null,
@@ -50,6 +50,14 @@ function addText(parent, cssClass, text) {
   item.textContent = text;
   parent.append(item);
 }
+function drawWarningImage(figure, warning) {
+  if (!warning.image) return;
+  const image = figure.ownerDocument.createElement('img');
+  image.src = warning.image;
+  if (warning.fullRow) image.className = 'reading-row';
+  image.alt = warning.field ? 'Фрагмент варианта ' + warning.field : 'Фрагмент вопроса';
+  figure.append(image);
+}
 function drawAnswer(container, info) {
   container.replaceChildren();
   container.className = 'answer-body'+(info.unclear ? ' unclear':'');
@@ -65,15 +73,10 @@ function drawAnswer(container, info) {
     caption.textContent = (warning.field ? 'Вариант ' + warning.field : 'Вопрос') +
       ' · «' + warning.readings[0] + '» или «' + warning.readings[1] + '»';
     figure.append(caption);
-    if (warning.image) {
-      const image = container.ownerDocument.createElement('img');
-      image.src = warning.image;
-      if (warning.fullRow) image.className='reading-row';
-      image.alt = warning.field ? 'Фрагмент варианта ' + warning.field : 'Фрагмент вопроса';
-      figure.append(image);
-    }
+    drawWarningImage(figure, warning);
     container.append(figure);
   }
+  if (info.reviewEditor) window.addQuizReadingEditor(container, info.reviewEditor.texts, info.readingWarnings, info.reviewEditor.confirm);
   if (info.selections) {
     for (const item of info.selections) addText(container, 'answer-text', item.choice + '. ' + item.text);
     const details = container.ownerDocument.createElement('details');
@@ -366,6 +369,7 @@ el('share').addEventListener('click',async () => {
   }
   let stream=null;
   const attempt=++state.shareAttempt;
+  el('share').disabled=true;
   try {
     stream=await navigator.mediaDevices.getDisplayMedia({
       video:{frameRate:{ideal:6,max:12},cursor:'never'},audio:false,selfBrowserSurface:'exclude',surfaceSwitching:'exclude',monitorTypeSurfaces:'exclude'
@@ -392,7 +396,7 @@ el('share').addEventListener('click',async () => {
     notify(error.name==='NotAllowedError'
       ? 'Окно не подключено. Выбери окно в системном диалоге. На Mac разрешение браузеру находится в Настройки системы → Конфиденциальность и безопасность → Запись экрана.'
       : 'Не удалось начать захват. '+error.message);
-  }
+  } finally { el('share').disabled=false; }
 });
 
 function takeSnapshot() {
@@ -584,7 +588,7 @@ function wholeWindowImage(fullWindow = false) {
 }
 function clearWorkflow() {
   state.session++;
-  state.previousReading=null;state.warningKey=null;
+  state.previousReading=null;state.warningKey=null;state.readingReview=null;
   window.QuizChart?.show(null);
   window.clearInterval(state.timer);state.timer=null;
   state.ocrJob?.controller.abort();state.ocrJob=null;
@@ -803,24 +807,42 @@ async function rowFromFrame(frame, field) {
   return canvas.toDataURL('image/png');
 }
 
-function reviewReading(texts, warnings, frame) {
+function reviewReading(texts, warnings, frame, review=null) {
   // Do not publish an answer based on (or cached before) the unresolved pixels.
   state.solveJob?.controller.abort();state.solveJob=null;
   state.currentKey=null;state.displayedKey=null;state.confirmedTexts=null;state.firstSeenAt=null;
   window.QuizChart?.show(null);
-  const key=JSON.stringify([texts,warnings.map(w=>[w.field,w.readings])]);
+  const editable = review?.repeated && validFields(texts.length) && texts.every(Boolean);
+  const key=JSON.stringify([texts,warnings.map(w=>[w.field,w.readings]), Boolean(editable), review?.identity]);
   if (key===state.warningKey) return;
   state.warningKey=key;
   showTexts(texts);
   const view={title:'Сверь распознанный текст', subtitle:'Чтения различаются. QuizLens перепроверяет кадр.',
     unclear:true, readingWarnings:warnings};
-  answer(view);status('Проверяю символы','problem');
+  if (editable) {
+    view.subtitle = 'Сверь с изображением, при необходимости исправь текст и подтверди.';
+    view.reviewEditor = {texts, confirm(edits) {
+      if (state.readingReview !== review || state.response !== view || review.corrected) {
+        throw new Error('Кадр уже изменился. Сверь текущий вопрос.');
+      }
+      review.corrected = texts.slice();
+      for (const edit of edits) review.corrected[edit.field] = edit.text;
+      // Only apply the correction after another observation of the exact same question and choices.
+      state.ocrJob?.controller.abort();state.ocrJob=null;
+      state.lastRead=-Infinity;
+    }};
+  }
+  answer(view);status(editable ? 'Нужно подтверждение' : 'Проверяю символы','problem');
   const missing=warnings.find(w=>!w.image);
   if (!missing || !frame) return;
   rowFromFrame(frame,missing.field).then(image=>{
     if (image && state.warningKey===key && state.response===view) {
       missing.image=image;missing.fullRow=true;
-      answer(view);
+      const selector='[data-reading-warning="'+missing.field+'"]';
+      for (const container of [el('answer'),state.pip?.document?.getElementById('pipAnswer')]) {
+        const figure=container?.querySelector(selector);
+        if (figure) drawWarningImage(figure,missing);
+      }
     }
   }).catch(()=>{}); // The alternatives remain visible if the image cannot be decoded.
 }
@@ -828,36 +850,55 @@ function reviewReading(texts, warnings, frame) {
 function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.now(),frame=null) {
   if (session!==state.session) return;
   if(!Array.isArray(raw) || (raw.length!==0 && !validFields(raw.length))) throw new Error('OCR вернул некорректное число областей.');
-  const texts=raw.map(s=>typeof s==='string'?s.normalize('NFC').replace(/\s+/g,' ').trim():'');
+  let texts=raw.map(s=>typeof s==='string'?s.normalize('NFC').replace(/\s+/g,' ').trim():'');
+  const selection=selectionForFrame(hint,texts.length-1);
+  const warnings=warningsForFrame(hint.readingWarnings,texts.length);
+  const snapshot=JSON.stringify([texts,selection.selectionMode,selection.expectedCount]);
+  const identity=JSON.stringify(warnings.map(item => [item.field,item.readings]));
+  const prior=state.readingReview;
+  const approved=prior?.corrected && prior.snapshot===snapshot && (!warnings.length || prior.identity===identity);
+  if (approved) {
+    texts=prior.corrected;
+    comparisonTexts=null;
+  } else if (warnings.length) {
+    if (prior && prior.snapshot===snapshot && prior.identity===identity) {
+      prior.repeated=true;
+    } else {
+      state.readingReview={snapshot,identity,repeated:false};
+    }
+    state.previousReading=null;state.pendingSince=null;state.candidateKey=null;state.candidateSeenAt=null;
+    noteCapture(texts,'partial',observedAt);
+    reviewReading(texts,warnings,frame,state.readingReview);
+    return;
+  } else {
+    state.readingReview=null;
+    if (prior?.corrected) {
+      state.solveJob?.controller.abort();state.solveJob=null;
+      state.previousReading=null;state.currentKey=null;state.displayedKey=null;
+      state.warningKey=null;state.confirmedTexts=null;
+    }
+  }
   const compared=Array.isArray(comparisonTexts) && comparisonTexts.length===raw.length && comparisonTexts.every(s=>typeof s==='string')
     ? comparisonTexts : texts;
   // Percent spacing often changes across OCR passes. The server still gets
   // what was read, and options that differ only in typography stay distinct.
   const compact=compared.map((value,i)=>i ? value.replace(/^([+−-]?\d+(?:[,.]\d+)?)\s+([%‰])$/, '$1$2') : value);
-  const identity=new Set(compact.slice(1)).size===texts.length-1 ? compact : compared;
-  const complete=validFields(texts.length) && texts.every(Boolean) && identity.every(Boolean) && new Set(identity.slice(1)).size===texts.length-1;
-  const warnings=warningsForFrame(hint.readingWarnings,texts.length);
-  if (warnings.length) {
-    state.previousReading=null;state.pendingSince=null;state.candidateKey=null;state.candidateSeenAt=null;
-    noteCapture(texts,'partial',observedAt);
-    reviewReading(texts,warnings,frame);
-    return;
-  }
+  const fields=new Set(compact.slice(1)).size===texts.length-1 ? compact : compared;
+  const complete=validFields(texts.length) && texts.every(Boolean) && fields.every(Boolean) && new Set(fields.slice(1)).size===texts.length-1;
   const change=complete && !state.tabReading ? criticalDifference(state.previousReading,texts) : null;
   state.previousReading=complete ? texts : null;
   // Keep option order, negation, case and mathematical symbols in the identity.
   if (complete || texts.some(Boolean) || state.captureIssue || state.currentKey) {
     noteCapture(texts,complete?'complete':'partial',observedAt);
   }
-  const selection=selectionForFrame(hint,texts.length-1);
-  const key=complete ? JSON.stringify([el('model').value,[...state.selected].sort(),identity,selection.selectionMode,selection.expectedCount]) : '';
+  const key=complete ? JSON.stringify([el('model').value,[...state.selected].sort(),fields,selection.selectionMode,selection.expectedCount]) : '';
 
   if (change && key!==state.currentKey) {
     state.candidateKey=key;state.candidateSeenAt=observedAt;state.pendingSince=null;
     reviewReading(texts,[change],frame);
     return;
   }
-  if(!state.tabReading && key!==state.currentKey && key!==state.candidateKey) {
+  if(!state.tabReading && !approved && key!==state.currentKey && key!==state.candidateKey) {
     window.QuizChart?.show(null);
     if(state.pendingSince===null) state.pendingSince=performance.now();
     state.candidateKey=key;state.candidateSeenAt=observedAt;
@@ -964,7 +1005,7 @@ async function recognize(session) {
     if(state.session!==session || job.controller.signal.aborted) return;
     state.currentKey=null;state.candidateKey=null;state.pendingSince=null;state.displayedKey=null;
     state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedTexts=null;
-    state.warningKey=null;state.previousReading=null;window.QuizChart?.show(null);
+    state.warningKey=null;state.previousReading=null;state.readingReview=null;window.QuizChart?.show(null);
     state.solveJob?.controller.abort();state.solveJob=null;
     state.retryOcrAt=performance.now()+1900;
     showTexts(null);
@@ -996,7 +1037,7 @@ function tick() {
       // page, periodically recheck the entire layout for tiny edits or movement.
       wait=quickRead ? 300 : state.dirtyFrame ? 700 : 3000;
     }
-    if(state.warningKey && state.candidateKey===null) wait=850;
+    if(state.warningKey && state.candidateKey===null) wait=state.readingReview?.repeated ? (state.dirtyFrame ? 400 : 1600) : 550;
     if(!state.ocrJob && now>=state.retryOcrAt && now-state.lastRead>=wait) recognize(state.session);
   } catch(error) { stop('Не удалось прочитать кадр. '+error.message); }
 }

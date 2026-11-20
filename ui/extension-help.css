@@ -1,0 +1,9 @@
+.extension-guide {max-width:58rem}
+.extension-guide .panel {margin-top:16px}
+.extension-guide ol {padding-left:1.6rem; margin-bottom:0}
+.extension-guide li {padding-left:.25rem; margin:.75rem 0}
+.extension-guide li::marker {color:var(--mint); font-weight:650}
+.extension-guide p {color:var(--muted)}
+.extension-guide .button {margin-top:.75rem}
+.extension-guide code {overflow-wrap:anywhere; color:var(--ink)}
+.folder-result {overflow-wrap:anywhere; user-select:text}

@@ -32,7 +32,7 @@ if [[ -f packaging/PRECOMPILED ]]; then
     export QUIZ_LENS_REGION_OCR="$helpers/RegionOCR"
     export QUIZLENS_PDF_READER="$helpers/ReadPDF"
     export QUIZLENS_WINDOW_READER="$helpers/WindowReader"
-    exec "$python_exec" -E -s -B -u app.py "$@"
+    exec "$python_exec" -E -s -B -u updater.py "$@"
 fi
 if ! /usr/bin/xcrun -f swiftc >/dev/null 2>&1; then
     echo "Для сборки из исходников установи Apple Command Line Tools командой xcode-select --install и повтори запуск."

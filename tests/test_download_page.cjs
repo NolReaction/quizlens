@@ -6,7 +6,7 @@ const {detectDevice, parseRelease, enablePage} = require('../site/download.js');
 
 const repo = 'demo/QuizLens';
 const url = 'https://github.com/'+repo;
-const names = ['QuizLens-Mac.zip','QuizLens-Windows.zip','QuizLens-Guide.md','SHA256SUMS.txt'];
+const names = ['QuizLens-Mac.zip','QuizLens-Windows.zip','QuizLens-Guide.md','SHA256SUMS.txt', 'QuizLens-Extension.zip'];
 function payload(body, assets = names) {
   return {tag_name:'v2.0.0', body, assets:assets.map(name => ({name, state:'uploaded', size:123}))};
 }
@@ -69,7 +69,8 @@ test('completed releases yield real manual downloads and preferred action only o
   assert.equal(get('hero-action').href,url+'/releases/download/v2.0.0/QuizLens-Mac.zip');
   assert.equal(get('windows-download').href,url+'/releases/download/v2.0.0/QuizLens-Windows.zip');
   assert.match(get('sign-info').textContent,/прошёл нотарификацию/);
-  assert.equal(get('mac-install').open,true);
+  assert.equal(get('extension-download').href, url+'/releases/download/v2.0.0/QuizLens-Extension.zip');
+  assert.equal(get('setup-extension-download').href, get('extension-download').href);
   await get('share').events.click();
   assert.equal(copied,'https://download.example.org/quiz/');
   const linux = surface(response,'Linux');
@@ -82,6 +83,7 @@ test('404 disables absent assets, network errors preserve the HTML release-list 
   await empty.done;
   assert.equal(empty.get('mac-download').hidden,true);
   assert.equal(empty.get('windows-download').hidden,true);
+  assert.equal(empty.get('extension-download').href,'./QuizLens-Extension.zip');
   assert.match(empty.get('release-status').textContent,/пока не опубликован/);
   const throttled=surface({ok:false,status:403});
   await throttled.done;
@@ -97,4 +99,11 @@ test('Mac hero opens signing information before an unsigned or unconfirmed downl
     assert.equal(get('mac-download').href,url+'/releases/download/v2.0.0/QuizLens-Mac.zip');
     assert.match(get('sign-info').textContent, body ? /без нотарификации/ : /не указан/);
   }
+});
+
+test('older releases keep the single extension download from the static site', async () => {
+  const prior = surface({ok:true, status:200, json:async()=>payload('', ['QuizLens-Windows.zip'])});
+  await prior.done;
+  assert.equal(prior.get('setup-extension-download').href, './QuizLens-Extension.zip');
+  assert.equal(prior.get('extension-download').href, './QuizLens-Extension.zip');
 });

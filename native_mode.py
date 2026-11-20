@@ -130,6 +130,10 @@ class NativeMode:
             raise RuntimeError(error[-800:] or "Не удалось получить окно. Проверьте разрешение macOS.")
         return result.stdout
 
+    def is_active(self):
+        with self._condition:
+            return self._session is not None and self._session["state"] != "error"
+
     def get(self, path, query):
         if path == "/api/native/windows":
             return {"windows": json.loads(self._run_once(["--list"]))}
@@ -146,7 +150,7 @@ class NativeMode:
                 result = {
                     name: session[name] for name in
                     ("state", "message", "question", "options", "answer", "elapsed", "revision",
-                     "requestedMode", "selectionMode", "expectedCount", "readingWarnings")
+                     "requestedMode", "selectionMode", "expectedCount", "readingWarnings", "canConfirmReading")
                 }
                 return result
         raise ValueError("Неизвестная команда захвата.")
@@ -154,6 +158,32 @@ class NativeMode:
     def post(self, path, payload):
         if path == "/api/native/start":
             return self._start(payload)
+        if path == "/api/native/confirm-reading":
+            with self._condition:
+                session = self._session
+                if (not session or session["id"] != payload.get("session") or session["state"] != "review"
+                        or type(payload.get("revision")) is not int or payload["revision"] != session["revision"]
+                        or not session["canConfirmReading"]):
+                    raise ValueError("Кадр уже изменился. Сверь текущий вопрос.")
+                edits = payload.get("edits")
+                fields = {w["field"] for w in session["readingWarnings"]}
+                if not isinstance(edits, list) or len(edits) != len(fields):
+                    raise ValueError("Подтверди каждое спорное поле.")
+                corrected = list(session["reviewSnapshot"][0])
+                for edit in edits:
+                    if not isinstance(edit, dict) or type(edit.get("field")) is not int or edit["field"] not in fields:
+                        raise ValueError("Неизвестное поле для исправления.")
+                    field = edit["field"]
+                    value = edit.get("text")
+                    if not isinstance(value, str) or not value.strip() or len(value) > max(4096, len(corrected[field])):
+                        raise ValueError("Проверь длину исправленного текста.")
+                    fields.remove(field)
+                    corrected[field] = " ".join(unicodedata.normalize("NFC", value).split())
+                if len(set(corrected[1:])) != len(corrected) - 1:
+                    raise ValueError("Варианты ответа должны различаться.")
+                session.update(confirmedReading=corrected, canConfirmReading=False,
+                               message="Проверяю, что на экране тот же вопрос…")
+            return {"ok": True}
         if path in ("/api/native/mode", "/api/native/refresh"):
             with self._condition:
                 session = self._session
@@ -166,6 +196,7 @@ class NativeMode:
                     session.update(requestedMode=requested, selectionMode=None, expectedCount=None,
                                    revision=session["revision"] + 1, signature=None, recent=[], captureTrace=[],
                                    unsettledSince=None, held=None, answer=None, elapsed=0, readingWarnings=[],
+                                   canConfirmReading=False, reviewSnapshot=None, confirmedReading=None,
                                    question="", options=[], state="waiting",
                                    message="Проверяем режим ответа для текущего вопроса…")
             return {"requestedMode": requested}
@@ -225,6 +256,7 @@ class NativeMode:
                 "captureTrace": [], "focus": focus, "focusAspect": focus_aspect, "fieldCount": field_count, "record": record,
                 "message": "Ищу вопрос и варианты…" if auto else "Ожидание текста в выбранных областях…",
                 "question": "", "options": [], "readingWarnings": [],
+                "canConfirmReading": False, "reviewSnapshot": None, "confirmedReading": None,
                 "answer": None, "elapsed": 0, "heartbeat": now, "started": now, "lastFrame": None, "revision": 0,
                 "signature": None, "recent": [], "unsettledSince": None, "held": None, "changed": now,
                 "normalize": index.normalize_ocr_fields,
@@ -305,20 +337,45 @@ class NativeMode:
                 mode, count = resolved["selectionMode"], resolved["expectedCount"]
                 signature = (fields, mode, count)
             now = time.monotonic()
-            if session["record"] and (fields is not None or any(texts) or issue or session["signature"]):
-                _note_capture(session, texts, fields is not None, now)
-            session["lastFrame"] = now
             recent = session["recent"]
-            if warnings and fields is not None:
-                if not session["readingWarnings"]:
+            session["lastFrame"] = now
+            frame_key = (tuple(texts), signature[1:] if signature is not None else None)
+            snapshot = (*frame_key, tuple((w["field"], tuple(w["readings"])) for w in warnings))
+            prior = session["reviewSnapshot"]
+            approved = session["confirmedReading"] is not None and prior is not None and (
+                snapshot == prior or (not warnings and frame_key == prior[:2]))
+            if approved:
+                texts = session["confirmedReading"]
+                fields = tuple(texts)
+                signature = (fields, mode, count)
+                if session["readingWarnings"]:
+                    # This fresh frame matched the one the user corrected.
+                    recent[:] = [(signature, now)]
+                    session.update(readingWarnings=[], canConfirmReading=False)
+            elif warnings and fields is not None:
+                repeated = prior == snapshot
+                if not repeated:
                     session["revision"] += 1
                 self._pending = None
                 recent.clear()
-                session.update(state="review", message="Перепроверь выделенный фрагмент на экране.",
+                if session["record"]:
+                    _note_capture(session, texts, False, now)
+                session.update(state="review", message=("Сверь с изображением, при необходимости исправь текст и подтверди."
+                               if repeated else "Повторно читаю выделенный фрагмент…"),
                                question=texts[0], options=texts[1:], selectionMode=mode, expectedCount=count,
-                               readingWarnings=warnings, answer=None, elapsed=0, held=None,
-                               signature=None, unsettledSince=None)
+                               readingWarnings=warnings, canConfirmReading=repeated, reviewSnapshot=snapshot,
+                               confirmedReading=None, answer=None, elapsed=0, held=None, signature=None,
+                               unsettledSince=None)
                 return
+            else:
+                if session["confirmedReading"] is not None:
+                    self._pending = None
+                    session.update(revision=session["revision"] + 1, signature=None, recent=[], answer=None,
+                                   state="waiting", held=None, question="", options=[], message="Проверяю новый кадр…")
+                    recent = session["recent"]
+                session.update(reviewSnapshot=None, canConfirmReading=False, confirmedReading=None)
+            if session["record"] and (fields is not None or any(texts) or issue or session["signature"]):
+                _note_capture(session, texts, fields is not None, now)
             if session["readingWarnings"]:
                 # Require two consecutive clean reads of this question before releasing the warning.
                 if signature is not None and (not recent or recent[-1][0] != signature):

@@ -14,6 +14,9 @@ import tempfile
 import zipfile
 
 SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE))
+from extension_package import EXTENSION_FILES
+
 PRODUCT = "QuizLens"
 ARCHITECTURES = ("arm64", "x86_64")
 HELPERS = ("RegionOCR", "ReadPDF", "WindowReader")
@@ -52,6 +55,10 @@ def copy_inputs(root, resources):
             out = resources / file.relative_to(root)
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(file, out)
+    extension = resources / "browser-extension"
+    extension.mkdir()
+    for name in EXTENSION_FILES:
+        shutil.copy(root / extension.name / name, extension / name)
     shutil.copy(root / "launch.command", resources / "launch.command")
     (resources / "launch.command").chmod(0o755)
     destination = resources / "packaging"
@@ -174,13 +181,7 @@ def package(root, target, settings=None):
         folder = work / "QuizLens-Mac"
         folder.mkdir()
         app = make_bundle(root, folder, settings)
-        extension = root / "browser-extension"
-        target_extension = folder / extension.name
-        target_extension.mkdir()
-        shutil.copy(extension / "manifest.json", target_extension)
-        for file in extension.iterdir():
-            if file.is_file() and file.suffix in {".html", ".css", ".js", ".png"}:
-                shutil.copy(file, target_extension)
+        shutil.copytree(app / "Contents/Resources/quiz-lens/browser-extension", folder / "browser-extension")
         guide = root / "docs/GUIDE.md"
         shutil.copyfile(guide, folder / "README.md")
         archive = work / "package.zip"

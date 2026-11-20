@@ -246,7 +246,11 @@ function clearResult() {
 }
 
 function present(data) {
-  const key = JSON.stringify(data);
+  // The crop may move slightly between frames. Preserve keyboard focus and the
+  // user's draft for this revision while the native reader compares the same fields.
+  const key = data.state === 'review'
+    ? JSON.stringify(['review', data.revision, data.canConfirmReading, data.message])
+    : JSON.stringify(data);
   if (resultKey === key) return;
   resultKey = key;
   const answer = data.answer || {};
@@ -268,6 +272,15 @@ function present(data) {
     }
     return line;
   }));
+  if (warnings.length && data.canConfirmReading) {
+    const currentSession = token;
+    window.addQuizReadingEditor(warningBox, [data.question, ...options], warnings, edits => {
+      if (!currentSession || token !== currentSession || key !== resultKey) {
+        throw new Error('Кадр уже изменился. Сверь текущий вопрос.');
+      }
+      return json('/api/native/confirm-reading', {session: currentSession, revision: data.revision, edits});
+    });
+  }
   const needsFigure = window.QuizChart?.show(warnings.length ? null : data.question || null);
   const choices = answer.choices || (answer.choice ? [answer.choice] : []);
   const valid = Array.isArray(choices) && choices.length > 0 && new Set(choices).size === choices.length

@@ -1,9 +1,13 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuizLens · Чтение вкладки</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/check.css"></head>
-<body><header class="top"><div class="bar"><a class="brand" href="/"><i class="lens"></i>Quiz<span>Lens</span></a><nav><a href="/">К захвату</a></nav></div></header>
-<main class="check"><h1>Чтение текста из вкладки</h1><section class="panel"><h2>Подключение в Chrome</h2>
-<ol><li>Распакуй ZIP QuizLens. В Chrome открой <code>chrome://extensions</code>, включи «Режим разработчика», нажми «Загрузить распакованное расширение» и выбери папку <code>browser-extension</code> из архива.</li>
-<li>Открой страницу «Захват» в QuizLens в этом же браузере. Нажми значок расширений, выбери QuizLens и нажми «Подключить QuizLens».</li>
-<li>Перейди во вкладку с вопросами. Нажми значок QuizLens и выбери «Читать вопросы». При смене вопроса текст обновится в окне QuizLens.</li></ol>
-<p>Покажи один вопрос и все его варианты. Поддерживаются обычные переключатели, флажки и пробный квиз QuizLens. Для страницы с вопросом на картинке, в отдельном встроенном окне или с нестандартными кнопками используй «Выбрать окно».</p>
-<p>Кнопка «Остановить чтение вкладки» завершает передачу. После перезагрузки страницы квиза включи чтение снова.</p><a class="button" href="/">Вернуться к захвату</a></section></main></body></html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QuizLens · Расширение браузера</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/check.css"><link rel="stylesheet" href="/extension-help.css"><script src="/extension-folder.js" defer></script></head>
+<body><header class="top"><div class="bar"><a class="brand" href="/"><i class="lens" aria-hidden="true"></i>Quiz<span>Lens</span></a><nav><a class="subtle" href="/">К захвату →</a></nav></div></header>
+<main class="check extension-guide"><h1>Чтение квиза из вкладки</h1>
+<section class="panel"><h2>Установи расширение один раз</h2>
+<ol><li><p>Открой папку расширения. QuizLens сохранит её на компьютере и будет обновлять файлы вместе с приложением.</p>
+<button class="button" type="button" data-extension-folder hidden>Показать папку расширения</button><p class="hint folder-result" role="status" data-extension-status hidden></p>
+<p>Для ручной установки скачай ZIP и распакуй его в постоянную папку.</p><a class="button primary" href="/download/QuizLens-Extension.zip" download>Скачать расширение</a></li>
+<li>Открой <code>chrome://extensions</code> в Chrome или <code>edge://extensions</code> в Edge. Включи <strong>«Режим разработчика»</strong>.</li>
+<li>Нажми <strong>«Загрузить распакованное расширение»</strong> и выбери папку, внутри которой лежит <code>manifest.json</code>.</li></ol></section>
+<section class="panel"><h2>Подключи две вкладки</h2><ol><li>Открой страницу «Захват» в том же браузере. Нажми на значок расширений, выбери QuizLens → <strong>«Подключить QuizLens»</strong>.</li>
+<li>Перейди во вкладку с квизом и нажми QuizLens → <strong>«Читать вопросы»</strong>. Вопросы и варианты обновляются при переходе дальше.</li></ol>
+<p>Покажи один вопрос со всеми вариантами. Если квиз нарисован на картинке или встроен в другую страницу, используй «Выбрать окно». После перезагрузки вкладки с квизом снова включи чтение. Чтобы браузер подхватил новую версию из папки, нажми значок обновления на карточке расширения.</p><a class="button" href="/">Открыть захват →</a></section></main></body></html>

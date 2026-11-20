@@ -190,6 +190,55 @@ private func smallPNG(_ image: CGImage) -> String? {
     return "data:image/png;base64," + (data as Data).base64EncodedString()
 }
 
+private func visibleEquals(_ image: CGImage) -> Bool {
+    // An isolated '=' frequently becomes a dash when read without the formula.
+    // Use only unscaled pixels and require the two strokes at both contrast levels.
+    let w = image.width, h = image.height
+    guard (5...192).contains(w), (3...96).contains(h),
+          let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                              space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue),
+          let pointer = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return false }
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    let pixels = withExtendedLifetime(ctx) { Array(UnsafeBufferPointer(start: pointer, count: w*h)) }
+    guard let darkest = pixels.min(), let brightest = pixels.max() else { return false }
+    let low = Double(darkest), high = Double(brightest)
+    guard high-low >= 48 else { return false }
+    let border = (0..<h).flatMap { [pixels[$0*w], pixels[$0*w+w-1]] }.sorted()
+    let lightBackground = Double(border[h]) >= (low+high)/2
+    for fraction in [0.40, 0.66] {
+        let threshold = lightBackground ? high-fraction*(high-low) : low+fraction*(high-low)
+        var bands: [Range<Int>] = []
+        var minX = w, maxX = -1, shortest = w
+        for y in 0..<h {
+            var first = w, last = -1, count = 0
+            for x in 0..<w {
+                let sample = Double(pixels[y*w+x])
+                if lightBackground ? sample < threshold : sample > threshold {
+                    first = min(first, x)
+                    last = x
+                    count += 1
+                }
+            }
+            if count == 0 { continue }
+            guard count == last-first+1 else { return false }
+            minX = min(minX, first)
+            maxX = max(maxX, last)
+            shortest = min(shortest, count)
+            if let band = bands.last, band.upperBound == y {
+                bands[bands.count-1] = band.lowerBound..<(y+1)
+            } else {
+                bands.append(y..<(y+1))
+            }
+        }
+        let width = Double(maxX-minX+1)
+        guard bands.count == 2, width >= 5, width-Double(shortest) <= max(2, 0.18*width) else { return false }
+        let a = bands[0], b = bands[1]
+        if Double(max(a.count, b.count)) > 0.38*width || min(a.count, b.count)*2 < max(a.count, b.count)
+            || Double(b.lowerBound-a.upperBound) > 0.8*width { return false }
+    }
+    return true
+}
+
 func verifyCriticalReadings(_ observations: [VNRecognizedTextObservation], image: CGImage,
                             languages: [String], budget: inout Int) -> [ObjectIdentifier: VisionConcern] {
     guard budget > 0, observations.count <= 900 else { return [:] }
@@ -203,9 +252,12 @@ func verifyCriticalReadings(_ observations: [VNRecognizedTextObservation], image
         let box = check.box
         let rect = CGRect(x: box.minX*w, y: (1-box.maxY)*h, width: box.width*w, height: box.height*h)
         let pad = max(1, min(6, rect.height*0.11))
-        let area = rect.insetBy(dx: -pad, dy: -pad).integral.intersection(CGRect(x: 0, y: 0, width: w, height: h))
+        let verticalPad = check.text == "=" ? max(pad, min(8, rect.width*0.45)) : pad
+        let area = rect.insetBy(dx: -pad, dy: -verticalPad).integral.intersection(CGRect(x: 0, y: 0, width: w, height: h))
         guard !area.isNull, area.height >= 5, area.width >= 3, area.width <= 1600, area.height <= 180,
-              let crop = image.cropping(to: area), let sample = enlargedGrayCrop(crop) else { continue }
+              let crop = image.cropping(to: area) else { continue }
+        if check.text == "=", visibleEquals(crop) { continue }
+        guard let sample = enlargedGrayCrop(crop) else { continue }
         budget -= 1
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate

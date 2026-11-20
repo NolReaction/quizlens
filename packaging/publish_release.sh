@@ -4,7 +4,7 @@ set -euo pipefail
 tag=${GITHUB_REF_NAME#release/}
 repo=$GITHUB_REPOSITORY
 commit=$(git rev-parse HEAD)
-assets=(QuizLens-Mac.zip QuizLens-Windows.zip QuizLens-Guide.md release.json SHA256SUMS.txt)
+assets=(QuizLens-Mac.zip QuizLens-Windows.zip QuizLens-Extension.zip QuizLens-Guide.md release.json SHA256SUMS.txt)
 paths=()
 for asset in "${assets[@]}"; do paths+=("dist/$asset"); done
 status=$(mktemp)

@@ -1,6 +1,9 @@
 """Run the shipped entrypoint from its extracted archive and test the local service."""
 
 import argparse
+import hashlib
+import importlib.util
+import io
 from pathlib import Path
 import json
 import os
@@ -76,6 +79,46 @@ def smoke(archive, signing):
                 info = json.load(response)
             if info.get("version") != expected or info.get("platform") != expected_platform:
                 raise ValueError(f"Unexpected running server: {info}")
+            version_root = (folder / "app" if expected_platform == "windows" else
+                            app / "Contents/Resources/quiz-lens") / "packaging"
+            official = (version_root / "REPOSITORY").is_file() and (
+                    version_root / "REPOSITORY").read_text(encoding="ascii").strip() == "NolReaction/quizlens"
+            # Disable unattended network checks in this temporary profile before inspecting update state.
+            settings = Request(url + "/api/update", data=b'{"action":"preferences","automatic":false}',
+                               headers={"Content-Type": "application/json"})
+            with local.open(settings, timeout=7) as response:
+                json.load(response)
+            with local.open(url + "/api/update", timeout=7) as response:
+                update = json.load(response)
+            if update.get("supported") != official or update.get("currentVersion") != expected:
+                raise ValueError(f"Packaged launcher failed the update status check: {update}")
+            if official:
+                # Stage these exact bytes through the shipped extractor and native signature checks.
+                # The release is still private here, so only the network fetch uses local fixture bytes.
+                from unittest.mock import patch
+                spec = importlib.util.spec_from_file_location("packaged_updater", version_root.parent / "updater.py")
+                shipped_updater = importlib.util.module_from_spec(spec)
+                with patch.object(sys, "dont_write_bytecode", True):
+                    spec.loader.exec_module(shipped_updater)
+                archive_bytes = archive.read_bytes()
+                digest = hashlib.sha256(archive_bytes).hexdigest()
+                update_cache = work / "verify update staging"
+                with patch.object(shipped_updater, "fetch_official", return_value=archive_bytes) as fetch:
+                    shipped_updater.stage_release(update_cache, expected, digest, archive.name)
+                    fetch.assert_called_once_with(f"{shipped_updater.RELEASES}/download/v{expected}/{archive.name}",
+                                                  shipped_updater.MAX_ZIP)
+                if not shipped_updater.target_root(update_cache, expected, archive.name):
+                    raise ValueError("The shipped updater could not activate the contents of this archive")
+            with local.open(url + "/download/QuizLens-Extension.zip", timeout=7) as response:
+                if response.headers.get_content_type() != "application/zip":
+                    raise ValueError("Extension download returned the wrong content type")
+                with zipfile.ZipFile(io.BytesIO(response.read())) as extracted:
+                    names = {f"browser-extension/{file.name}" for file in extension.iterdir() if file.is_file()}
+                    if extracted.testzip() or set(extracted.namelist()) != names:
+                        raise ValueError("Local app served an incomplete extension archive")
+                    for name in names:
+                        if extracted.read(name) != (folder / name).read_bytes().replace(b"\r\n", b"\n"):
+                            raise ValueError(f"Different extension on the live local download route: {name}")
             profile = {"platform": "windows", "accelerator": "discrete", "ramGiB": 32, "vramGiB": 10}
             request = Request(url + "/api/advisor", data=json.dumps(profile).encode(),
                               headers={"Content-Type": "application/json"})

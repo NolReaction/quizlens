@@ -62,6 +62,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check playwright==1.56.0
           python tests/browser/onboarding.py --screenshots "$RUNNER_TEMP/quizlens-screens"
+          python tests/browser/public_install.py
       - name: Exercise the tab reader with real activeTab permissions in Chromium
         if: runner.os == 'Linux'
         run: |

@@ -4,8 +4,12 @@ import argparse
 from pathlib import Path
 import re
 import shutil
+import sys
 
 SOURCE = Path(__file__).resolve().parent
+sys.path.insert(0, str(SOURCE.parent))
+from extension_package import EXTENSION_ARCHIVE, extension_archive
+
 REPOSITORY = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,38}/[a-zA-Z0-9_.-]{1,100}")
 
 
@@ -20,6 +24,7 @@ def build(repository, target):
     (target / "index.html").write_text(html, encoding="utf-8")
     for asset in ("download.css", "download.js"):
         shutil.copyfile(SOURCE / asset, target / asset)
+    (target / EXTENSION_ARCHIVE).write_bytes(extension_archive(SOURCE.parent / "browser-extension"))
     (target / ".nojekyll").touch()
 
 

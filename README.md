@@ -4,14 +4,16 @@ QuizLens читает вопрос и варианты ответа в выбр�
 
 ## Скачать
 
-Выбери свою систему на [странице загрузки QuizLens](https://nolreaction.github.io/quizlens/). Там же есть инструкция по первому запуску. Архивы, статус подписи для Mac и контрольные суммы доступны в [GitHub Releases](https://github.com/NolReaction/quizlens/releases).
+Выбери свою систему на [странице загрузки QuizLens](https://nolreaction.github.io/quizlens/). На первом экране доступны [расширение для Chrome и Edge](https://nolreaction.github.io/quizlens/#extension) и [компоненты для установки](https://nolreaction.github.io/quizlens/#components). Архивы, статус подписи для Mac и контрольные суммы доступны в [GitHub Releases](https://github.com/NolReaction/quizlens/releases).
 
 | Компьютер | Файл релиза | Первый запуск |
 |---|---|---|
 | macOS 14+, Apple Silicon или Intel | `QuizLens-Mac.zip` | Выбери нотарифицированный выпуск, распакуй архив, перетащи `QuizLens.app` в «Программы» и открой его. Нужен Python 3.9+. |
-| Windows 10/11 x64 | `QuizLens-Windows.zip` | Установи 64-разрядный Python 3.9+, распакуй архив и открой `Start.cmd`. Для распознавания экрана следуй `START-HERE.txt` из архива. |
+| Windows 10/11 x64 | `QuizLens-Windows.zip` | Установи 64-разрядный Python 3.9+, распакуй архив и открой `Start.cmd`. Для захвата экрана нажми «Установить OCR» на главной странице QuizLens. |
 
 Статус подписи Mac указан для каждого выпуска отдельно. Содержимое архивов и обновление уже установленной версии описаны в [руководстве пользователя](docs/GUIDE.md).
+
+Начиная с версии 1.9.0 официальная сборка может установить обновление из открытого окна QuizLens. При первом переходе с 1.8.0 запусти новую сборку вручную. [Как работают обновления](docs/GUIDE.md#обновление-quizlens).
 
 ## Попробовать за несколько минут
 

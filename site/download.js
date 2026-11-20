@@ -45,7 +45,7 @@ function parseRelease(data, repoURL) {
   const notarized = body.includes('<!-- quizlens-macos: notarized -->');
   const unsigned = body.includes('<!-- quizlens-macos: unsigned -->');
   return {
-    tag, releaseURL, guide: download('QuizLens-Guide.md'), checksums: download('SHA256SUMS.txt'),
+    tag, releaseURL, extension: download('QuizLens-Extension.zip'), guide: download('QuizLens-Guide.md'), checksums: download('SHA256SUMS.txt'),
     mac: download(files.mac), windows: download(files.windows),
     macStatus: notarized === unsigned ? 'unknown' : notarized ? 'notarized' : 'unsigned'
   };
@@ -96,6 +96,9 @@ function enablePage(doc, browser, location, fetchRelease) {
       get(system + '-info').textContent = url
         ? result.tag + ' · ' + files[system]
         : 'Архив для этой системы пока не опубликован.';
+    }
+    for (const id of ['extension-download', 'setup-extension-download']) {
+      get(id).href = result?.extension || './QuizLens-Extension.zip';
     }
     const signLabels = {
       notarized: 'Выпуск подписан Developer ID и прошёл нотарификацию Apple.',
@@ -150,13 +153,6 @@ function enablePage(doc, browser, location, fetchRelease) {
       get('share-message').textContent = 'Ссылка для пересылки — ' + link.href;
     }
   });
-
-  function openSection() {
-    const id = location.hash.slice(1);
-    if (id === 'mac-install' || id === 'windows-install') get(id).open = true;
-  }
-  openSection();
-  doc.defaultView?.addEventListener('hashchange', openSection);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);

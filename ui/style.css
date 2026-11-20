@@ -43,3 +43,10 @@ a.button.primary:hover {background:#9aefcd}
 .first-model a {color:var(--mint);font-weight:570}
 .first-model a:hover {text-decoration:underline}
 .model-advisor-link {margin-right:1rem}
+
+.reading-editor { display:grid; gap:.65rem; margin-top:.8rem; }
+.reading-editor label { display:grid; gap:.3rem; color:var(--ink); font-weight:600; }
+.reading-editor textarea { width:100%; min-height:3rem; padding:.55rem .7rem; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--ink); font:inherit; resize:vertical; }
+.reading-editor textarea:focus-visible { outline:2px solid var(--sky); outline-offset:2px; }
+.reading-editor button { justify-self:start; min-height:42px; }
+.reading-editor p:empty { display:none; }

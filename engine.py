@@ -313,6 +313,7 @@ _TOKEN = re.compile(r"[a-zа-яё]+\d*|\d+(?:[.,]\d+)?|[α-ω]+|[≤≥≠≈]",
 # uppercase tokens actually documented in this corpus; never transliterate prose.
 _ACRONYM = re.compile(r"(?<!\w)[A-ZА-ЯЁІЅЈ][A-ZА-ЯЁІЅЈ0-9]{2,}(?!\w)")
 _LATIN_LOOKALIKES = str.maketrans("АВЕКМНОРСТХІЅЈ", "ABEKMHOPCTXISJ")
+_FORMULA_PAIR = re.compile(r"(?<!\w)[A-ZАВЕКМНОРСТХІЅЈ]{2}(?!\w)")
 _DEFINITION_QUERY = re.compile(r"\b(?:что такое|что означает|что обозначает|what (?:is|are)|define)\b", re.I)
 _DEFINITION_SUBJECT = re.compile(
     r"^[ \t]*([\w]+(?:[ \t]+[\w]+){0,3})[ \t]+(?:[-–—][ \t]+|(?:означает|обозначает|is|are)[ \t]+)",
@@ -414,10 +415,27 @@ class LectureIndex:
 
     def normalize_ocr_fields(self, texts):
         question, *options = texts
+        question = self.normalize_ocr_text(question)
         corrected = [self.normalize_ocr_text(value) for value in options]
+        # In a bilingual formula the same Latin variable may switch scripts
+        # mid-expression. Accept only an entire documented option for this
+        # question, with every operator, digit and operand still in place.
+        def formula_key(value):
+            return _exact(_FORMULA_PAIR.sub(lambda m: m.group().translate(_LATIN_LOOKALIKES), value))
+
+        if any("=" in v and _FORMULA_PAIR.search(v) for v in corrected):
+            formulas = collections.defaultdict(set)
+            for card in self.cards.get(_exact(question, question=True), ()):
+                for value in self.sections[card].get("options") or ():
+                    if "=" in value and any(sign in value for sign in "+-−*/×") and _FORMULA_PAIR.search(value):
+                        formulas[formula_key(value)].add(value)
+            for i, value in enumerate(corrected):
+                matches = formulas.get(formula_key(value))
+                if matches and len(matches) == 1:
+                    corrected[i] = next(iter(matches))
         if len({_exact(value) for value in corrected}) != len(options):
             corrected = options
-        return [self.normalize_ocr_text(question), *corrected]
+        return [question, *corrected]
 
     def search(self, question, options=(), limit=4, *, accept=None):
         terms = dict.fromkeys(_tokens(self.normalize_ocr_text(question)), 1.0)

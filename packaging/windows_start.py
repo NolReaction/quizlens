@@ -32,12 +32,11 @@ def main():
     if sys.argv[1:] == ["--prepare"]:
         return prepare()
     sys.path.insert(0, str(APP))
-    import app
+    import updater
     import ocr
     print("QuizLens · оставь это окно открытым. Для остановки нажми Ctrl+C.")
     print(ocr.windows_ocr_status()["detail"])
-    app.main()
-    return 0
+    return updater.supervise()
 
 
 if __name__ == "__main__":

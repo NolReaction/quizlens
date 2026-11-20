@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 import errno
 import hashlib
 import json
@@ -22,12 +23,15 @@ from http.client import HTTPConnection, HTTPException
 from urllib.parse import parse_qs, urlsplit
 
 import advisor
+import components
+import extension_package
 import engine
 import model_bench
 import ocr
 import quiz_mode
 import semantic
 import training
+import updater
 import visual
 from journal import Journal
 from native_mode import NativeMode
@@ -299,8 +303,12 @@ class Handler(BaseHTTPRequestHandler):
         port = self.server.server_port
         valid = {f"127.0.0.1:{port}", f"localhost:{port}"}
         host = self.headers.get("Host")
+        # The public download page links to installation controls on the local homepage.
+        landing = (self.command == "GET" and urlsplit(self.path).path in {"/", "/index.html"}
+                   and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                   and self.headers.get("Sec-Fetch-Dest") == "document")
         if (host not in valid or self.headers.get("Origin") not in (None, "http://" + host)
-                or self.headers.get("Sec-Fetch-Site") == "cross-site"):
+                or (self.headers.get("Sec-Fetch-Site") == "cross-site" and not landing)):
             raise PermissionError("Запрос разрешён только из локального окна QuizLens.")
 
     def body(self, limit):
@@ -336,6 +344,16 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.body(byte_limit))
             if not isinstance(data, dict):
                 raise ValueError("Некорректный запрос приложения.")
+            if path == "/api/components/extension":
+                if data != {"action": "open-folder"}:
+                    raise ValueError("Выбери действие открытия папки.")
+                return self.server.extension_folder.open()
+            if path == "/api/components/ocr":
+                if data != {"action": "install"}:
+                    raise ValueError("Выбери действие установки компонентов.")
+                return self.server.components.install()
+            if path == "/api/update":
+                return self.server.updates.command(data)
             if path == "/api/advisor":
                 return model_advice(data)
             if path == "/api/advisor/benchmark":
@@ -390,8 +408,14 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/native/"):
                 return self.server.native.post(path, data)
             raise FileNotFoundError(path)
+        if path == "/download/QuizLens-Extension.zip":
+            return ("application/zip", extension_package.extension_archive(self.server.extension_folder.source))
+        if path == "/api/components/ocr":
+            return self.server.components.snapshot()
         if path == "/api/ocr-status":
             return ocr.warmup_status()
+        if path == "/api/update":
+            return self.server.updates.snapshot()
         if path == "/api/health":
             return {"app": "QuizLens", "version": VERSION, "distribution": release_links(), "nativeCapture": sys.platform == "darwin",
                     "platform": {"darwin": "macos", "win32": "windows", "linux": "linux"}.get(sys.platform, "unknown")}
@@ -430,7 +454,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def dispatch(self, write=False):
         try:
-            result = self.route(write)
+            track = write and urlsplit(self.path).path != "/api/update" and hasattr(self.server, "updates")
+            with self.server.updates.work() if track else nullcontext():
+                result = self.route(write)
             if isinstance(result, tuple):
                 self.send(200, result[1], result[0])
             else:
@@ -470,12 +496,16 @@ def open_ui(url):
     webbrowser.open(url)
 
 
-def main():
+def launch_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--data-dir", type=Path, default=user_dir())
     parser.add_argument("--no-browser", action="store_true")
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main():
+    args = launch_arguments()
     try:
         server = QuizServer(("127.0.0.1", args.port), Handler)
     except OSError as error:
@@ -506,6 +536,17 @@ def main():
             return
         raise SystemExit("Порт занят. Запусти с параметром --port 8766.")
     try:
+        runtime = args.data_dir / "runtime"
+        server.components = components.OCRComponents(runtime)
+        folder = ROOT / "browser-extension"
+        if not folder.is_dir():
+            folder = ROOT.parent / "browser-extension"
+        server.extension_folder = components.ExtensionFolder(runtime, folder)
+        if server.extension_folder.target.is_dir():
+            try:
+                server.extension_folder.sync()
+            except OSError as exc:
+                print(f"Не удалось обновить папку расширения: {exc}", file=sys.stderr)
         server.corpus = Corpus(args.data_dir / "lectures")
         server.journal = Journal(args.data_dir)
         server.meaning = semantic.SemanticStore(args.data_dir, ENDPOINT)
@@ -520,12 +561,15 @@ def main():
             except (ValueError, OSError, AttributeError):
                 pass
         server.native = NativeMode(server.solve, server.corpus.index)
+        server.updates = updater.Updates(VERSION, server.shutdown, lambda: server.components.is_installing() or server.native.is_active())
         ocr.start_prewarm()
         url = f"http://127.0.0.1:{server.server_port}"
         print(f"QuizLens {VERSION} · {url}", flush=True)
         if not args.no_browser:
             threading.Thread(target=open_ui, args=(url,), daemon=True).start()
+        server.updates.ready(server.server_port)
         server.serve_forever()
+        return updater.RESTART if server.updates.restarting else 0
     except KeyboardInterrupt:
         pass
     finally:
@@ -534,4 +578,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

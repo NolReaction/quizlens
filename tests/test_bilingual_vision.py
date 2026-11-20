@@ -28,6 +28,18 @@ class VocabularyTests(unittest.TestCase):
 
 @unittest.skipUnless(Image, "Pillow required for Tesseract image processing")
 class WordImageTests(unittest.TestCase):
+    def test_exclamation_like_vertical_strokes_require_a_clean_independent_word(self):
+        image = Image.new("L", (120, 60), "white")
+        terms = OCRVocabulary([{"text": "Recall учитывает пропуски."}])
+        for reread, confidence, expected in (("Recall", 90, "Recall"), ("Recall!", 90, "Веса!"),
+                                              ("Recall", 30, "Веса!"), ("Real", 95, "Веса!")):
+            words = [dict(text="Веса!", x=10, y=8, w=46, h=15)]
+            with patch.object(ocr, "_read_tsv", return_value=[[{"text": reread, "confidence": confidence}]]):
+                ocr._verify_lecture_words([image], [words], "tesseract", terms)
+            self.assertEqual(words[0]["text"], expected)
+        self.assertIsNone(OCRVocabulary([{"text": "Recall веса"}]).ending_candidate("Веса"))
+        self.assertIsNone(OCRVocabulary([{"text": "Recall Decall"}]).ending_candidate("Веса"))
+
     def test_correction_needs_agreement_of_the_document_and_an_independent_reading(self):
         image = Image.new("L", (200, 120), "white")
         words = [dict(text="«Ассигасу?»", x=8, y=12, w=74, h=18),

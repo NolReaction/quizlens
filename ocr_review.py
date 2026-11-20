@@ -77,7 +77,8 @@ def _crop(original, page, part, siblings):
         elif other["x"] >= x + w:
             right = min(right, other["x"])
     sx, sy = original.width / page.width, original.height / page.height
-    top, bottom = max(0, y - .12 * h), min(page.height, y + h * 1.12)
+    padding = min(8, .45 * w) if part["text"].strip() == "=" else .12 * h
+    top, bottom = max(0, y - padding), min(page.height, y + h + padding)
     xmin, ymin = int(left * sx), int(top * sy)
     xmax = min(original.width, max(xmin + 1, round(right * sx)))
     ymax = min(original.height, max(ymin + 1, round(bottom * sy)))
@@ -91,6 +92,41 @@ def _stroke_runs(mask):
             indices = [coordinate for coordinate, _ in positions]
             runs.append((indices[0], indices[-1] + 1))
     return runs
+
+
+def _visible_equals(crop):
+    """Confirm exactly two aligned horizontal strokes at two contrasts on the original pixels."""
+    w, h = crop.size
+    if not 5 <= w <= 192 or not 3 <= h <= 96:
+        return False
+    grey = crop.convert("L")
+    low, high = grey.getextrema()
+    if high - low < 48:
+        return False
+    # The crop can be tight above and below the sign. Its side margins
+    # normally expose the background even in dark mode.
+    border = sorted(grey.getpixel((x, y)) for y in range(h) for x in (0, w-1))
+    light_background = border[len(border)//2] >= (low+high)/2
+    for fraction in (.40, .66):
+        threshold = (high - fraction * (high-low) if light_background else low + fraction * (high-low))
+        ink = grey.point(lambda level: 255 if (level < threshold if light_background else level > threshold) else 0)
+        bands = _stroke_runs(ink.getprojection()[1])
+        if len(bands) != 2:
+            return False
+        left, _, right, _ = ink.getbbox()
+        width = right - left
+        thick = [end-start for start, end in bands]
+        if (width < 5 or max(thick) > .38 * width or min(thick) * 2 < max(thick)
+                or bands[1][0] - bands[0][1] > .8 * width):
+            return False
+        # Disjoint fragments (a colon pair, text, a diagonal slash) cannot
+        # qualify by their outer bounds alone.
+        for start, end in bands:
+            for y in range(start, end):
+                segment = _stroke_runs([ink.getpixel((x, y)) for x in range(left, right)])
+                if len(segment) != 1 or width - (segment[0][1] - segment[0][0]) > max(2, .18 * width):
+                    return False
+    return True
 
 
 def _comparison_glyph(crop):
@@ -193,6 +229,9 @@ def field_warnings(pages, originals, groups, texts, regions, read):
     candidates.sort(key=lambda c: c[:4])
     reads = [_Candidate(field, text, _crop(originals[i], pages[i], part, groups[i]))
              for _, _, field, text, i, part in candidates[:_MAX_TOKENS]]
+    # Isolated word OCR often calls an equals sign a dash even in two
+    # enlarged views. Its two visible strokes corroborate the primary read.
+    reads = [item for item in reads if item.text != "=" or not _visible_equals(item.crop)]
     if not reads:
         return []
     try:

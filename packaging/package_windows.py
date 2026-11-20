@@ -2,14 +2,18 @@
 
 import argparse
 import os
+import sys
 from pathlib import Path
 import tempfile
 import zipfile
 
 SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE))
+from extension_package import EXTENSION_FILES
+
 SAMPLES = ("analytics-demo.txt", "analytics-demo.quiz.json", "ocr-warmup.png", "QuizLens-demo.ipynb")
-MODULES = ("app", "advisor", "model_bench", "auto_layout", "engine", "journal", "native_mode", "ocr",
-           "numeric_evidence", "ocr_terms", "ocr_review", "ocr_layout", "quiz_mode", "semantic", "training", "visual")
+MODULES = ("app", "advisor", "components", "model_bench", "auto_layout", "engine", "extension_package", "journal", "native_mode", "ocr",
+           "numeric_evidence", "ocr_terms", "ocr_review", "ocr_layout", "quiz_mode", "semantic", "training", "visual", "updater")
 
 
 def package(source, target):
@@ -26,10 +30,8 @@ def package(source, target):
     if repository.is_file():
         inputs["app/packaging/REPOSITORY"] = repository
     extension = source / "browser-extension"
-    inputs["browser-extension/manifest.json"] = extension / "manifest.json"
-    for file in extension.iterdir():
-        if file.is_file() and file.suffix in {".html", ".css", ".js", ".png"}:
-            inputs["browser-extension/" + file.name] = file
+    for name in EXTENSION_FILES:
+        inputs["browser-extension/" + name] = extension / name
     for name in MODULES:
         inputs[f"app/{name}.py"] = source / (name + ".py")
     for file in (source / "ui").iterdir():

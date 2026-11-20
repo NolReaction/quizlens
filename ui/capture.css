@@ -92,3 +92,23 @@
 .reading-warning figcaption {overflow-wrap:anywhere; font-size:.95rem; line-height:1.4}
 .reading-warning img {display:block; max-width:100%; width:auto; height:60px; margin-top:8px; object-fit:contain; object-position:left center}
 .reading-warning img.reading-row {height:auto; max-height:190px}
+
+.heading-actions, .component-actions, .update-controls {display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px}
+.heading-actions {justify-content:flex-end}
+#sessionView .update-jump {color:var(--muted); gap:4px}
+#updateBadge {color:var(--mint); font-variant-numeric:tabular-nums}
+.capture-install {display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px 15px; align-items:center; padding:13px 15px; margin:0 0 10px; background:#172923; border:1px solid #365345; border-radius:10px}
+.component-intro {flex:1 1 15rem; min-width:0}
+.component-intro h3, .ocr-component h3 {margin:0; font-size:.98rem; font-weight:650}
+.component-intro p {margin:3px 0 0; font-size:.89rem; color:var(--muted); line-height:1.45}
+.ocr-component {padding:0 0 14px; border-bottom:1px solid var(--border); margin:0 0 14px}
+.ocr-component .hint {margin:4px 0}
+.app-updates {margin-top:18px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px 22px; scroll-margin-top:16px}
+.app-updates .record-label {margin:0; min-height:44px; align-items:center; color:var(--muted); font-size:.89rem}
+.installed-version {margin-left:4px; color:var(--sub); font-size:.87rem; font-weight:500}
+@media(max-width:720px) {
+  .heading-actions {justify-content:flex-start}
+  .capture-install .component-actions {gap:4px 10px}
+  .app-updates .component-intro {flex-basis:100%}
+}
+.folder-result {flex-basis:100%; overflow-wrap:anywhere; user-select:text}

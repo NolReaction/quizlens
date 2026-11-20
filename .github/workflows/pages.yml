@@ -90,7 +90,7 @@ jobs:
         run: |
           staging="$RUNNER_TEMP/quizlens-page"
           python3 ../source/site/build.py --repository "$GITHUB_REPOSITORY" --output "$staging"
-          files=(index.html download.css download.js .nojekyll)
+          files=(index.html download.css download.js QuizLens-Extension.zip .nojekyll)
           for file in "${files[@]}"; do cp --remove-destination "$staging/$file" "$file"; done
           git add -- "${files[@]}"
           if ! git diff --cached --quiet; then
