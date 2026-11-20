@@ -89,19 +89,39 @@ function fileLink(raw) {
   } catch { return null; }
 }
 
-function renderCard(container, model) {
+const numberFormat = new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 2});
+
+function addSpec(list, label, value) {
+  const item = document.createElement('div');
+  item.append(textNode('dt', label), textNode('dd', value));
+  list.append(item);
+}
+
+function renderCard(container, model, label) {
+  const header = textNode('p', label || model.fitLabel, 'model-fit');
+  if (model.fit) header.setAttribute('data-fit', model.fit);
   const name = textNode('h3', model.name);
-  const meta = textNode('p', [model.quant, model.fileSize && 'Файл '+model.fileSize].filter(Boolean).join(' · '),'model-meta');
+  const specs = document.createElement('dl');
+  specs.className = 'model-specs';
+  if (model.parametersB) {
+    let parameters = numberFormat.format(model.parametersB) + ' млрд';
+    if (model.activeParametersB) parameters += ' · ' + numberFormat.format(model.activeParametersB) + ' млрд активных';
+    addSpec(specs, 'Параметры', parameters);
+  }
+  if (model.fileSize) addSpec(specs, 'Файл GGUF', model.fileSize + ' · ' + model.quant);
+  if (model.contextTokens) addSpec(specs, 'Контекст', numberFormat.format(model.contextTokens) + ' ток.');
+  addSpec(specs, 'Макс. ответ', model.maxOutputTokens ? numberFormat.format(model.maxOutputTokens) + ' ток.' : 'Не указан автором');
+
   const actions = document.createElement('div');
   actions.className = 'actions';
-  let fileName = '';
   const url = fileLink(model.downloadUrl);
   if (url) {
-    fileName = decodeURIComponent(url.pathname.split('/').pop());
-    const link = textNode('a','Скачать GGUF ↗','button');
+    const link = textNode('a','Скачать GGUF ↗','button download');
     link.href = url.href;
+    if (model.filename) link.title = model.filename;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
+    link.setAttribute('aria-label', 'Скачать GGUF · ' + model.name);
     actions.append(link);
   }
   const copy = textNode('button','Скопировать для поиска','quiet');
@@ -109,14 +129,16 @@ function renderCard(container, model) {
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(model.search || model.name);
-      copy.textContent = 'Название скопировано';
+      copy.textContent = 'Скопировано';
     } catch {
-      copy.textContent = 'Для поиска: '+(model.search || model.name);
+      copy.textContent = 'Для поиска — ' + (model.search || model.name);
     }
   };
   actions.append(copy);
+  let installed = false;
   if (model.installedId && !manual && localAdvice?.models?.includes(model.installedId)) {
-    const select = textNode('button','Перейти к проверке этой модели','button');
+    installed = true;
+    const select = textNode('button','Проверить модель','button');
     select.type = 'button';
     select.onclick = () => {
       element('installed-model').value = model.installedId;
@@ -124,29 +146,69 @@ function renderCard(container, model) {
       element('benchmark').focus();
     };
     actions.prepend(select);
-    meta.textContent += ' · Есть на этом компьютере';
   }
-  container.replaceChildren(name, meta, textNode('p',model.reason,'model-reason'),actions);
-  if (fileName) container.append(textNode('code',fileName,'file-name'));
+  const intro = textNode('p', model.description || model.reason || '', 'model-description');
+  container.replaceChildren(header, name, intro, specs);
+  if (label && model.reason && model.reason !== intro.textContent) {
+    container.append(textNode('p', model.reason, 'model-reason'));
+  }
+  if (installed) container.append(textNode('p', 'Доступна на этом компьютере', 'model-installed'));
+  container.append(actions);
+  if (label && model.filename) container.append(textNode('code', model.filename, 'file-name'));
+  if (model.sourceUrl) {
+    const source = textNode('a', 'Описание модели ↗', 'model-source');
+    source.href = model.sourceUrl;
+    source.target = '_blank';
+    source.rel = 'noopener noreferrer';
+    container.append(source);
+  }
+}
+
+function showBudget(example) {
+  element('quiz-budget').hidden = !example;
+  if (!example) return;
+  element('example-input').textContent = '≈ ' + numberFormat.format(example.inputTokens) + ' ток.';
+  element('example-output').textContent = '≈ ' + numberFormat.format(example.outputTokens) + ' ток.';
+  element('budget-limits').textContent = 'QuizLens отводит на ответ до ' + example.outputLimitSingle
+    + ' токенов при одном варианте и от ' + example.outputLimitMultipleMin + ' до '
+    + example.outputLimitMultipleMax + ' при нескольких.';
+}
+
+function hideAdvice() {
+  element('recommendation').hidden = true;
+  element('model-catalog').hidden = true;
 }
 
 function advice(data) {
   element('recommendation').hidden = false;
   if (data.primary) {
-    renderCard(element('primary-model'), data.primary);
+    renderCard(element('primary-model'), data.primary, 'Рекомендуем для старта');
   } else {
     element('primary-model').replaceChildren(textNode('p', data.needsHardware
       ? 'Для подбора укажи систему, тип графики и доступный объём памяти.'
       : 'Начни с готовых карточек. Их можно использовать без загрузки модели.', 'model-reason'));
   }
   element('alternative').hidden = !data.alternative;
-  element('alternative').open = false;
-  if (data.alternative) renderCard(element('other-model'), data.alternative);
-  element('install').hidden = !data.primary;
-  element('install').open = Boolean(data.primary && !manual && data.serverAvailable===false);
+  if (data.alternative) renderCard(element('other-model'), data.alternative, 'Ещё один вариант');
+  const shortlisted = new Set([data.primary?.id, data.alternative?.id]);
+  const others = (data.catalog || []).filter(model => !shortlisted.has(model.id));
+  const items = others.map(model => {
+    const card = document.createElement('article');
+    card.className = 'model-card';
+    renderCard(card, model);
+    return card;
+  });
+  element('catalog-grid').replaceChildren(...items);
+  element('model-catalog').hidden = !items.length;
+  element('catalog-link').hidden = !items.length;
+  element('catalog-description').textContent = data.primary
+    ? 'Другие модели по размеру файла. Для каждой указана оценка по памяти выбранного компьютера.'
+    : 'Модели по размеру файла. Укажи характеристики компьютера, чтобы проверить, какие из них подойдут.';
+  element('install').hidden = !data.primary && !items.length;
   const notes = data.notes || [];
   element('notes').replaceChildren(...notes.map(note=>textNode('li',note)));
   element('notes').hidden = !notes.length;
+  showBudget(data.quizTokenExample);
 }
 
 function available(data) {
@@ -199,7 +261,7 @@ async function loadLocal() {
     if (manual || version!==viewVersion) return;
     element('hardware').textContent = 'Характеристики недоступны.';
     element('available').hidden = true;
-    element('recommendation').hidden = true;
+    hideAdvice();
     element('server-status').setAttribute('data-state', 'offline');
     element('server-status').textContent = 'Не удалось получить данные от QuizLens.';
     setIssue('Проверь, что QuizLens запущен, и нажми «Обновить список».');
@@ -230,10 +292,9 @@ function selectMode() {
   element('device-switch').setAttribute('aria-expanded', String(manual));
   element('device-title').textContent = manual ? 'Ручной подбор' : 'Этот компьютер';
   element('profile-form').hidden = !manual;
-  element('install').open = false;
   element('local-panel').hidden = manual;
   element('hardware').hidden = manual;
-  element('recommendation').hidden = true;
+  hideAdvice();
   if (manual) {
     const profile = localAdvice?.profile || {};
     element('platform').value = profile.platform || 'unknown';
@@ -257,7 +318,7 @@ async function calculate(event) {
   const version = ++viewVersion;
   setIssue();
   element('calculate').disabled = true;
-  element('recommendation').hidden = true;
+  hideAdvice();
   try {
     const result = await request('/api/advisor', profile);
     if (manual && version===viewVersion) advice(result);
@@ -274,7 +335,9 @@ function appendCase(result) {
   const status = {ok:'верно',late:'верно, больше 15 с',wrong:'ошибка в ответе',unconfirmed:'нет подтверждённого ответа',error:'сбой запроса'};
   const label = status[result.status] || result.detail || 'без результата';
   const title = (result.firstCall?'Первый запрос · ':'')+result.title;
-  element('bench-cases').append(textNode('li', title+' — '+label+elapsed));
+  const row = textNode('li', title+' — '+label+elapsed);
+  if (result.tokenUsage) row.append(textNode('small', formatQuizTokenUsage(result.tokenUsage), 'case-tokens'));
+  element('bench-cases').append(row);
 }
 
 async function benchmark() {
@@ -329,7 +392,7 @@ element('profile-form').onsubmit = calculate;
 element('profile-form').oninput = () => {
   if (!manual) return;
   viewVersion++;
-  element('recommendation').hidden = true;
+  hideAdvice();
   element('calculate').disabled = false;
   setIssue();
 };

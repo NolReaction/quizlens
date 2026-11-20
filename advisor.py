@@ -8,17 +8,87 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
+from typing import Optional
 
 
 REQUIREMENTS = "https://lmstudio.ai/docs/app/system-requirements"
-# File sizes shown by Hugging Face are decimal GB. RAM and VRAM below are GiB.
+
+@dataclass(frozen=True)
+class Model:
+    # Context is read from the pinned GGUF header. Output limits and parameter counts
+    # come from the publisher's card. An unspecified output maximum stays unknown.
+    publisher: str
+    repo: str
+    revision: str
+    filename: str
+    file_bytes: int
+    parameters_b: float
+    context_tokens: int
+    max_output_tokens: Optional[int]
+    # Conservative nominal capacities for interactive use with a 4096-token context.
+    # They are estimates for the full file plus runtime overhead, not model limits.
+    unified_gib: int
+    vram_gib: int
+    description: str
+    active_parameters_b: Optional[float] = None
+
+    @property
+    def name(self):
+        return self.publisher.split("/")[1]
+
+
 _MODELS = {
-    "small": ("Qwen2.5-1.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-              "qwen2.5-1.5b-instruct-q4_k_m.gguf", "1,12 ГБ"),
-    "medium": ("Qwen3-4B-Instruct-2507", "lmstudio-community/Qwen3-4B-Instruct-2507-GGUF",
-               "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "2,50 ГБ"),
-    "large": ("Qwen2.5-7B-Instruct", "bartowski/Qwen2.5-7B-Instruct-GGUF",
-              "Qwen2.5-7B-Instruct-Q4_K_M.gguf", "4,68 ГБ"),
+    "tiny": Model(
+        "Qwen/Qwen2.5-0.5B-Instruct", "bartowski/Qwen2.5-0.5B-Instruct-GGUF",
+        "41ba88dbac95fed2528c92514c131d73eb5a174b", "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+        397_808_192, 0.49, 32_768, 8_192, 8, 2,
+        "Самый маленький файл в подборке. Подойдёт для первого запуска и коротких вопросов."),
+    "small": Model(
+        "Qwen/Qwen2.5-1.5B-Instruct", "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "91cad51170dc346986eccefdc2dd33a9da36ead9", "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        1_117_320_736, 1.54, 32_768, 8_192, 8, 3,
+        "Компактная модель для коротких вопросов и компьютеров с небольшим объёмом памяти."),
+    "compact": Model(
+        "Qwen/Qwen2.5-3B-Instruct", "bartowski/Qwen2.5-3B-Instruct-GGUF",
+        "f302c64a2269a69fb27b2f9473b362f5bb8e78d8", "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+        1_929_903_264, 3.09, 32_768, 8_192, 12, 4,
+        "Промежуточный вариант между 1,5 и 4 млрд параметров для вопросов по тексту."),
+    "medium": Model(
+        "Qwen/Qwen3-4B-Instruct-2507", "lmstudio-community/Qwen3-4B-Instruct-2507-GGUF",
+        "4edb920b6f14e3b9284d4502a6485103d72cde05", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        2_497_280_448, 4.0, 262_144, None, 16, 6,
+        "Даёт ответ без отдельного этапа рассуждения. Удобна для вопросов с таймером."),
+    "gemma4b": Model(
+        "google/gemma-3-4b-it", "lmstudio-community/gemma-3-4b-it-GGUF",
+        "d650fa07be1a9252c9f7c6597fadc729a377254b", "gemma-3-4b-it-Q4_K_M.gguf",
+        2_489_757_856, 4, 131_072, 8_192, 16, 6,
+        "Модель Google для сравнения ответов на русском. Для текста достаточно этого GGUF."),
+    "large": Model(
+        "Qwen/Qwen2.5-7B-Instruct", "bartowski/Qwen2.5-7B-Instruct-GGUF",
+        "8911e8a47f92bac19d6f5c64a2e2095bd2f7d031", "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        4_683_074_240, 7.61, 32_768, 8_192, 24, 8,
+        "Следующий размер после 4B. Можно сравнить, как модель разбирает похожие варианты ответа."),
+    "ministral": Model(
+        "mistralai/Ministral-3-8B-Instruct-2512", "unsloth/Ministral-3-8B-Instruct-2512-GGUF",
+        "3731507ec3e867db16d620f73e14d689125758f4", "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
+        5_198_386_720, 8.4, 262_144, None, 24, 8,
+        "Текстовая часть Ministral на 8,4 млрд параметров. QuizLens передаёт ей распознанный вопрос."),
+    "gemma12b": Model(
+        "google/gemma-3-12b-it", "lmstudio-community/gemma-3-12b-it-GGUF",
+        "785c151b0dabf00cfaff1421239fafdbb8e5995d", "gemma-3-12b-it-Q4_K_M.gguf",
+        7_300_574_976, 12, 131_072, 8_192, 32, 12,
+        "Более крупная Gemma для сравнения с 4B на сложных формулировках из документа."),
+    "qwen14b": Model(
+        "Qwen/Qwen2.5-14B-Instruct", "bartowski/Qwen2.5-14B-Instruct-GGUF",
+        "05244aa5d871c661c80082a15d3bce44714d068d", "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+        8_988_110_976, 14.7, 32_768, 8_192, 40, 16,
+        "Крупная текстовая модель. Замерь время ответа на своём устройстве перед квизом."),
+    "mixture": Model(
+        "Qwen/Qwen3-30B-A3B-Instruct-2507", "unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF",
+        "eea7b2be5805a5f151f8847ede8e5f9a9284bf77", "Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf",
+        18_556_686_752, 30.5, 262_144, None, 48, 24,
+        "На каждом токене активна часть параметров. Для загрузки в память нужен весь файл модели.", active_parameters_b=3.3),
 }
 
 
@@ -268,16 +338,53 @@ def _installed(model, models):
     return None
 
 
-def _card(tier, reason, models):
-    name, repo, file, file_size = _MODELS[tier]
-    url = "https://huggingface.co/" + repo
-    return {"id": name.lower(), "name": name, "quant": "Q4_K_M", "fileSize": file_size, "search": repo,
-            "fileUrl": f"{url}/blob/main/{file}", "downloadUrl": f"{url}/resolve/main/{file}?download=true",
-            "installedId": _installed(name, models), "reason": reason}
+_FIT_LABELS = {
+    "recommended": "С чего начать", "alternative": "Ещё один вариант", "fits": "Есть запас памяти",
+    "limited": "Мало запаса", "unknown": "Нужны характеристики", "unsupported": "LM Studio недоступна",
+}
 
 
-def recommend(profile=None, model_ids=()):
-    profile = _profile(detect_hardware() if profile is None else profile)
+def _card(model, fit, reason, models):
+    url = "https://huggingface.co/" + model.repo
+    file_size = f"{model.file_bytes / 10 ** 9:.2f}".replace(".", ",") + " ГБ"
+    return {
+        "id": model.name.lower(), "name": model.name, "quant": "Q4_K_M", "fileSize": file_size,
+        "fileBytes": model.file_bytes, "filename": model.filename, "search": model.repo,
+        "fileUrl": f"{url}/blob/{model.revision}/{model.filename}",
+        "downloadUrl": f"{url}/resolve/{model.revision}/{model.filename}?download=true",
+        "sourceUrl": "https://huggingface.co/" + model.publisher,
+        "parametersB": model.parameters_b, "activeParametersB": model.active_parameters_b,
+        "contextTokens": model.context_tokens, "maxOutputTokens": model.max_output_tokens,
+        "description": model.description, "fit": fit, "fitLabel": _FIT_LABELS[fit],
+        "installedId": _installed(model.name, models), "reason": reason,
+    }
+
+
+def _has_capacity(measured, nominal):
+    # Available RAM as reported by the OS can fall just short of its nominal capacity.
+    return measured is not None and measured >= nominal - (0.5 if nominal <= 8 else 1)
+
+
+def _memory_fit(model, profile):
+    ram, vram, accelerator = profile["ramGiB"], profile["vramGiB"], profile["accelerator"]
+    if not ram:
+        return "unknown", "Укажи объём памяти компьютера, чтобы оценить запас."
+    if accelerator == "discrete":
+        if vram is None:
+            return "unknown", "Для оценки нужна выделенная видеопамять."
+        host_ram = 8 if model.unified_gib <= 12 else 16
+        fits = _has_capacity(ram, host_ram) and _has_capacity(vram, model.vram_gib)
+        reason = f"Для размещения на видеокарте ориентир — {model.vram_gib} ГиБ видеопамяти и {host_ram} ГиБ ОЗУ."
+    else:
+        fits = _has_capacity(ram, model.unified_gib)
+        kind = "общей памяти" if accelerator == "apple" else "ОЗУ"
+        reason = f"Для короткого контекста ориентир — {model.unified_gib} ГиБ {kind}."
+        if accelerator != "apple":
+            reason += " Скорость на процессоре проверь на примере."
+    return ("fits" if fits else "limited"), reason
+
+
+def _recommend(profile, model_ids):
     system, accelerator = profile["platform"], profile["accelerator"]
     ram, vram = profile["ramGiB"], profile["vramGiB"]
     result = {"profile": profile, "primary": None, "alternative": None, "installedMatch": None,
@@ -289,26 +396,26 @@ def recommend(profile=None, model_ids=()):
         else:
             result["needsHardware"] = True
             notes.append("Проверь чип в меню Apple → Об этом Mac. Для M-серии выбери Apple Silicon. На Intel Mac доступны готовые карточки QuizLens.")
-        return result
+        return result, "unknown" if result["needsHardware"] else "unsupported"
     windows_x64 = system == "windows" and profile["arch"].lower() in ("x86_64", "amd64")
     if windows_x64 and profile["avx2"] is False:
         notes.append("Windows не подтверждает поддержку AVX2, нужную для LM Studio x64. Для этого ПК подойдут готовые карточки.")
         if model_ids:
             notes.append("Если у тебя уже работает другая локальная среда с моделью, проверь её на трёх вопросах.")
-        return result
+        return result, "unsupported"
     if ram is None:
         result["needsHardware"] = True
         notes.append("Для подбора модели укажи объём оперативной или объединённой памяти компьютера.")
-        return result
+        return result, "unknown"
     # Detected usable RAM may be a little below the nominal 8/16 GiB.
     if ram < 7.5:
         notes.append("При таком объёме памяти начни с готовых карточек без модели. Они оставят память браузеру и распознаванию.")
-        return result
+        return result, "limited"
 
     tier = "small"
-    other_tier = None
+    other_tier = "tiny"
     reason = "Компактная модель оставляет больше памяти системе, браузеру и распознаванию."
-    other_reason = ""
+    other_reason = "Меньший файл для первого запуска. Проверь точность на вопросах из своего документа."
     if accelerator == "apple" and ram >= 15:
         tier = "medium"
         reason = "Объединённой памяти достаточно для первой пробы 4B с коротким контекстом."
@@ -324,19 +431,38 @@ def recommend(profile=None, model_ids=()):
                      ("Если есть отдельная видеокарта, укажи её параметры вручную." if accelerator == "unknown"
                       else "Больший объём оперативной памяти сам по себе не ускоряет ответы."))
     if tier == "medium":
-        plentiful = ram >= 23 and accelerator == "apple" or accelerator == "discrete" and vram >= 7.5
-        other_tier = "large" if plentiful else "small"
-        other_reason = ("Есть запас для пробы 7B. Сравни правильность и время на тех же вопросах."
-                        if plentiful else "Попробуй меньшую модель, если ответы 4B приходят после таймера.")
+        other_tier = next((key for key in ("mixture", "qwen14b", "gemma12b", "large")
+                           if _memory_fit(_MODELS[key], profile)[0] == "fits"), "small")
+        other_reason = ("Попробуй меньшую модель, если ответы 4B приходят после таймера."
+                        if other_tier == "small" else
+                        "Есть запас памяти для более крупной модели. Сравни точность и время на тех же вопросах.")
     if windows_x64 and profile["avx2"] is None:
         notes.append("Для LM Studio в Windows x64 нужен процессор с AVX2.")
     notes.append("Начни с контекста 4096 токенов. Размер файла указан для скачивания. При работе дополнительную память занимают контекст и служебные буферы.")
-    result["primary"] = _card(tier, reason, model_ids)
-    if other_tier:
-        result["alternative"] = _card(other_tier, other_reason, model_ids)
+    result["primary"] = _card(_MODELS[tier], "recommended", reason, model_ids)
+    result["alternative"] = _card(_MODELS[other_tier], "alternative", other_reason, model_ids)
     result["installedMatch"] = result["primary"]["installedId"]
     if result["installedMatch"]:
         notes.append("Локальный сервер видит эту модель. Если в её имени не указано сжатие, проверь его в библиотеке моделей.")
+    return result, None
+
+
+def recommend(profile=None, model_ids=()):
+    profile = _profile(detect_hardware() if profile is None else profile)
+    result, unavailable_fit = _recommend(profile, model_ids)
+    picks = {card["id"]: card for card in (result["primary"], result["alternative"]) if card}
+    catalog = []
+    for model in sorted(_MODELS.values(), key=lambda item: item.file_bytes):
+        pick = picks.get(model.name.lower())
+        if pick:
+            catalog.append(pick)
+            continue
+        if unavailable_fit:
+            fit, reason = unavailable_fit, result["notes"][0]
+        else:
+            fit, reason = _memory_fit(model, profile)
+        catalog.append(_card(model, fit, reason, model_ids))
+    result["catalog"] = catalog
     return result
 
 

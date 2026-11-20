@@ -40,6 +40,26 @@ class AdvisorBenchmark(unittest.TestCase):
         self.assertEqual([r["choices"] for r in rows], [[3], [2], [1, 4]])
         self.assertTrue(all(r["withinBudget"] and r["status"] == "ok" for r in rows))
 
+    def test_actual_and_estimated_tokens_follow_the_real_benchmark_request(self):
+        with patch.object(bench.engine, "_api") as api:
+            example = bench.quiz_token_example()
+            api.assert_not_called()
+            for usage, content, expected in (
+                ({"prompt_tokens": 302, "completion_tokens": 11}, "unreadable", (302, 11, False, False)),
+                ({"prompt_tokens": 400}, "текст", (400, 3, False, True)),
+                ({"completion_tokens": 9}, "", (example["inputTokens"], 9, True, False)),
+                ({"completion_tokens": False}, "", (example["inputTokens"], None, True, True)),
+            ):
+                with self.subTest(usage=usage):
+                    message = {"content": content, "reasoning_content": "OK" if content == "текст" else ""}
+                    api.side_effect = [{"data": [{"id": "local"}]}, {"usage": usage, "choices": [{"message": message}]}]
+                    row = bench.run_case("local", 0)
+                    tokens = row["tokenUsage"]
+                    self.assertEqual(tokens["source"], "model")
+                    self.assertEqual((tokens["input"], tokens["output"], tokens["inputEstimated"],
+                                      tokens["outputEstimated"]), expected)
+                    self.assertEqual(api.call_args.args[2]["max_tokens"], example["outputLimitSingle"])
+
     def test_late_vs_wrong_and_budget_boundary(self):
         cases = [
             (15000000000, [3], "model", "ok", True, True),

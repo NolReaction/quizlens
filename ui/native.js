@@ -21,8 +21,16 @@ function loadPreferences() {
   try {
     const main = JSON.parse(localStorage.getItem("quizlens.settings.v1") || "{}") || {};
     const native = JSON.parse(localStorage.getItem("quizlens-native") || "{}") || {};
-    return {model:main.model, lectureIds:main.selected, ...native, record:main.record ?? native.record};
+    return {...native, model:main.model ?? native.model, lectureIds:main.selected ?? native.lectureIds,
+      record:main.record ?? native.record};
   } catch { return {}; }
+}
+
+function saveSharedSetting(key, value) {
+  try {
+    const settings = JSON.parse(localStorage.getItem("quizlens.settings.v1") || "{}");
+    localStorage.setItem("quizlens.settings.v1", JSON.stringify({...settings, [key]:value}));
+  } catch { /* Optional when browser storage is unavailable. */ }
 }
 
 function savePreferences(auto) {
@@ -62,18 +70,29 @@ function selectedLectures() {
 async function loadLectures(selected = previous.lectureIds) {
   try {
     const { lectures } = await json("/api/lectures");
-    const labels = lectures.map((lecture) => {
-      const item = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.value = lecture.id;
-      input.checked = !Array.isArray(selected) || selected.includes(lecture.id);
-      input.addEventListener("change", controls);
-      item.append(input, document.createTextNode(lecture.name));
-      return item;
-    });
-    el("lectures").replaceChildren(...labels);
-    if (!labels.length) el("files-info").textContent = "Добавь хотя бы одну лекцию.";
+    const list = el("lectures");
+    list.replaceChildren();
+    const groups = [
+      ["Твои документы", lectures.filter(item => !item.builtIn)],
+      ["Примеры для пробного квиза", lectures.filter(item => item.builtIn)]
+    ];
+    for (const [name, items] of groups) {
+      if (!items.length) continue;
+      const heading = document.createElement("p");
+      heading.className = "document-group";
+      heading.textContent = name;
+      list.append(heading);
+      for (const lecture of items) {
+        const item = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = lecture.id;
+        input.checked = !Array.isArray(selected) || selected.includes(lecture.id);
+        item.append(input, document.createTextNode(lecture.name));
+        list.append(item);
+      }
+    }
+    if (!lectures.length) el("files-info").textContent = "Добавь хотя бы один документ.";
   } catch (error) { el("files-info").textContent = error.message; }
   controls();
 }
@@ -94,6 +113,7 @@ async function importLectures() {
       selected.add(result.lecture.id);
     } catch (error) { errors.push(file.name + " — " + error.message); }
   }
+  saveSharedSetting("selected", [...selected]);
   await loadLectures([...selected]);
   el("files").value = "";
   el("files").disabled = false;
@@ -109,7 +129,7 @@ async function loadModels() {
     el("model").replaceChildren(new Option("Карточки и поиск (без модели)", ""));
     for (const name of models) el("model").add(new Option(name, name));
     if (models.includes(wanted)) el("model").value = wanted;
-    el("model-info").textContent = models.length ? "" : "Загрузи модель в LM Studio и включи локальный сервер.";
+    el("model-info").textContent = models.length ? (el("model").value ? "Модель доступна через локальный сервер." : "Выбери модель для ответов по своим документам.") : "Загрузи модель в LM Studio и включи локальный сервер.";
   } catch (error) {
     el("model").replaceChildren(new Option("Карточки и поиск (без модели)", ""));
     el("model-info").textContent = "Модели недоступны. Можно проверить захват на пробных карточках.";
@@ -186,7 +206,7 @@ function controls() {
   el("auto").disabled = starting || !windowSelected || !hasLectures;
   el("start").hidden = !snapshotId;
   el("start").disabled = starting || !complete || !hasLectures;
-  el("ready").textContent = !hasLectures ? "Отметь хотя бы одну лекцию."
+  el("ready").textContent = !hasLectures ? "Отметь хотя бы один документ."
     : snapshotId && !complete ? "Для ручного чтения выдели вопрос и каждый видимый вариант." : "";
   el("mark-step").textContent = regions.length === fieldCount()
     ? "Разметка готова" : regions.length ? "Выдели вариант " + regions.length : "Выдели вопрос или весь квиз";
@@ -247,13 +267,14 @@ function present(data) {
   const modeLabel = data.selectionMode === "multiple"
     ? (data.expectedCount ? "Выбрать " + data.expectedCount : "Множественный выбор") : "";
   const timing = confirmed.length ? "Ответ за " + data.elapsed + " с" : data.message || answer.detail;
-  el("state").textContent = [modeLabel, timing, answer.journalWarning].filter(Boolean).join(" · ");
+  el("state").textContent = [modeLabel, timing, formatQuizTokenUsage(answer.tokenUsage), answer.journalWarning].filter(Boolean).join(" · ");
   const evidence = answer.evidence || (confirmed.length === 1 ? [{ ...answer, choice: confirmed[0] }] : []);
   el("evidence").replaceChildren(...evidence.filter(proof =>
     confirmed.includes(proof.choice) && (proof.source || proof.excerpt)).map(proof => {
     const details = document.createElement("details");
+    details.open = true;
     const title = document.createElement("summary");
-    title.textContent = "Вариант " + proof.choice + " · " + (proof.source || "Цитата из лекции");
+    title.textContent = "Вариант " + proof.choice + " · " + (proof.source || "Цитата из документа");
     details.append(title);
     if (proof.excerpt) {
       const quote = document.createElement("blockquote");
@@ -391,11 +412,15 @@ el("files").onchange = importLectures;
 el("start").onclick = () => startReading(false);
 el("auto").onclick = () => startReading(true);
 el("record").checked = previous.record !== false;
-el("record").onchange = () => {
-  try {
-    const settings = JSON.parse(localStorage.getItem("quizlens.settings.v1") || "{}");
-    localStorage.setItem("quizlens.settings.v1", JSON.stringify({...settings,record:el("record").checked}));
-  } catch { /* Session settings still apply when storage is unavailable. */ }
+el("record").onchange = () => saveSharedSetting("record", el("record").checked);
+el("lectures").onchange = () => {
+  saveSharedSetting("selected", selectedLectures());
+  controls();
+};
+el("model").onchange = () => {
+  previous.model = el("model").value;
+  saveSharedSetting("model", previous.model);
+  el("model-info").textContent = previous.model ? "Модель доступна через локальный сервер." : "Доступны карточки и поиск по тексту.";
 };
 el("visual").addEventListener("click", event => {
   if (!token) return;

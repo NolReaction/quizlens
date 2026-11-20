@@ -1,115 +1,81 @@
-.capture-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px 24px;
-  margin-bottom: 22px;
+#sessionView {padding-top:clamp(22px, 3vw, 38px)}
+.capture-heading, .section-head, .step-heading, .step-actions, .model-picker,
+.upload-row, .document-heading, .session-actions, .capture-links {
+  display:flex;
+  align-items:center;
+  gap:10px;
 }
-.capture-heading p {
-  color: var(--muted);
-  max-width: 60ch;
-  margin-top: 4px;
+.capture-heading {justify-content:space-between; margin-bottom:20px}
+.capture-heading p, .step-intro {color:var(--muted); line-height:1.45}
+.capture-heading p {margin-top:3px}
+.jump-link, #sessionView .text-link, #sessionView .subtle {
+  color:var(--mint);
+  font-weight:550;
+  text-underline-offset:3px;
 }
-.session-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.jump-link:hover, #sessionView .text-link:hover, #sessionView .subtle:hover {text-decoration:underline}
+.jump-link, #sessionView .text-link {display:inline-flex; align-items:center; min-height:44px; font-size:.93rem}
+.jump-link {white-space:nowrap}
+.prep-grid {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-bottom:18px}
+#sessionView .prep-step {padding:clamp(16px,1.7vw,22px)}
+.step-heading {min-width:0}
+.step-heading h2, #sessionView .result h2 {font-size:clamp(1.1rem,1.45vw,1.28rem); line-height:1.25}
+.step-number {display:grid; place-items:center; flex:0 0 1.85rem; height:1.85rem; border-radius:50%; background:#213b33; border:1px solid #3a5d50; color:#b8f4d8; font-size:.88rem; font-variant-numeric:tabular-nums; font-weight:650}
+.prep-step .step-intro, #windowStep .step-intro {font-size:.96rem; margin:8px 0 14px; max-width:64ch}
+.control-label, .document-heading h3, #sessionView .readout h3, #captureOptions {font-size:.95rem; font-weight:620; color:var(--ink); margin:0}
+.control-label {display:block; margin-bottom:6px}
+.model-picker {align-items:stretch}
+.model-picker select {min-width:0}
+#sessionView .model-picker select, #sessionView #selectionMode {min-height:44px; font-size:.95rem}
+#sessionView .mini-button {min-height:44px; padding:6px 12px; font-size:.88rem}
+.model-info {margin-top:7px; overflow-wrap:anywhere}
+.step-actions {margin-top:16px; flex-wrap:wrap; gap:6px 15px}
+.upload-row {flex-wrap:wrap; gap:6px 12px}
+.upload-row small {color:var(--sub); font-size:.84rem}
+.file-feedback:empty {display:none}
+#sessionView .file-feedback {overflow-wrap:anywhere}
+.document-heading {justify-content:space-between; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); flex-wrap:wrap; gap:4px}
+#materialSummary {color:var(--muted); font-size:.85rem}
+#sessionView .lecture-list {display:block; max-height:15rem; margin-top:4px}
+.document-group {margin:5px 0 0; color:var(--sub); font-size:.81rem}
+#sessionView .lecture-item {min-height:29px; padding:3px 5px; margin:0; border-radius:4px; align-items:center}
+#sessionView .lecture-item:hover, #sessionView .lecture-item:focus-within {background:#202e36}
+#sessionView .lecture-item input {margin:0; width:1rem; height:1rem; flex-shrink:0}
+#sessionView .lecture-item span {font-size:.91rem}
+#sessionView .notice {margin:0 0 16px}
+#windowStep, #materials {scroll-margin-top:16px}
+#windowStep:focus {outline:none}
+#windowStep:focus-visible {outline:2px solid var(--sky); outline-offset:3px}
+#windowStep .section-head {margin-bottom:0}
+.session-actions {flex-wrap:wrap; margin-bottom:14px}
+#sessionView .button {min-height:46px; padding:9px 15px}
+#sessionView .trial-button {border-color:#476357; color:#c4f2dc; background:#1e342c}
+#sessionView .trial-button:hover {background:#284436}
+#sessionView:not(.sharing) .stage {aspect-ratio:auto; min-height:118px}
+#sessionView .empty {padding:12px; gap:0}
+#sessionView .empty .window-icon {margin-bottom:7px; width:46px; height:34px}
+#sessionView .empty .window-icon i {inset:13px 9px 4px 7px}
+#sessionView .empty strong {font-size:.91rem; font-weight:500; color:var(--muted)}
+#nativeLink {display:inline-flex; align-items:center; min-height:42px}
+.capture-feedback {color:var(--muted); margin-top:4px; font-size:.89rem}
+#sessionView .capture-settings {margin-top:16px; padding-top:13px}
+#sessionView .capture-controls {margin:10px 0 0}
+#sessionView .capture-settings .config-label {margin-top:8px}
+#sessionView #selectionMode {max-width:28rem}
+#sessionView .readout {border-top:1px solid #344941; padding-top:12px; font-size:.9rem}
+#sessionView .readout h3 {color:#c5dacf}
+#sessionView .result-tools {margin:.75rem 0 0}
+#sessionView .result-tools .subtle {min-height:36px; display:inline-flex; align-items:center}
+#sessionView .capture-links {margin-top:22px; flex-wrap:wrap; gap:10px 18px}
+#sessionView .capture-links a {display:inline-flex; align-items:center; min-height:40px}
+#sessionView.sharing .capture, #sessionView .capture:target {border-color:#4e7465}
+@media (max-width:720px) {
+  .prep-grid, #sessionView .workspace {grid-template-columns:1fr; gap:12px}
+  .prep-grid {margin-bottom:12px}
+  .capture-heading {align-items:flex-start; flex-wrap:wrap; gap:3px; margin-bottom:12px}
+  #sessionView .lecture-item {min-height:36px}
+  #sessionView .section-head {gap:8px}
 }
-.start-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin: 0 0 24px;
-}
-.start-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 0;
-  padding: clamp(16px, 2vw, 23px);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-}
-.start-card h2 {font-size: 1.15rem;}
-.start-card > p {
-  color: var(--muted);
-  margin: 6px 0 16px;
-  font-size: .96rem;
-  line-height: 1.5;
-}
-.start-card .button {margin-top: auto;}
-.start-card .file-feedback {margin: 10px 0 0; color: var(--ink); overflow-wrap: anywhere;}
-.start-card .file-feedback:empty {display: none;}
-.practice-card {
-  background: #172923;
-  border-color: #345246;
-}
-.practice-card .button {border-color: #517868; background: #244336; color: #c0f8dc;}
-.session-actions .button, .start-card .button {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 48px;
-  padding: 10px 17px;
-  font-size: 1rem;
-  text-align: center;
-}
-.start-card a.button:hover {background: #304250;}
-.practice-card a.button:hover {background: #2b5041;}
-#sessionView .notice {margin: 0 0 16px;}
-#sessionView:not(.sharing) .stage {aspect-ratio: auto; min-height: 166px;}
-#sessionView .empty {max-width: 49ch;}
-#sessionView .panel .mini-button {min-height: 38px; padding: 6px 12px;}
-#sessionView .panel .button {min-height: 42px;}
-#sessionView .capture-controls {margin: 12px 0 0;}
-#sessionView .capture-controls .subtle,
-#sessionView .diagnostics-link,
-#sessionView .result-tools a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  color: var(--mint);
-  font-size: .92rem;
-}
-#sessionView .capture-settings > summary {min-height: 36px; align-content: center;}
-#sessionView .capture-settings {margin-top: 12px;}
-#sessionView .capture-feedback {margin-top: 5px; color: var(--muted); font-size: .9rem;}
-#sessionView .settings select {min-height: 44px; font-size: .97rem;}
-#sessionView .settings .lecture-item {min-height: 38px; align-items: center;}
-#sessionView .lecture-item input {margin-top: 0;}
-#materialSummary {font-size: .88rem; color: var(--muted);}
-#sessionView.sharing .start-card {padding: 12px;}
-#sessionView.sharing .start-card h2,
-#sessionView.sharing .start-card p:not(.file-feedback) {display: none;}
-#sessionView.sharing .start-card .button {width: 100%;}
-
-@media (max-width: 800px) {
-  .start-cards {gap: 9px;}
-  .start-card {padding: 15px;}
-  .start-card .button {padding-inline: 12px;}
-}
-@media (max-width: 665px) {
-  .capture-heading {align-items: flex-start; gap: 12px; margin-bottom: 16px;}
-  .session-actions {width: 100%;}
-  .session-actions .button {flex: 1;}
-  .start-cards {grid-template-columns: 1fr; margin-bottom: 16px;}
-  .start-card {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 4px 12px;
-  }
-  .start-card > p {grid-column: 1; margin: 0;}
-  .start-card > .button {grid-column: 2; grid-row: 1 / span 2; margin: 0;}
-  .start-card > .file-feedback {grid-column: 1 / -1; margin-top: 2px;}
-  #sessionView.sharing .start-cards {display: flex; flex-wrap: wrap; gap: 7px;}
-  #sessionView.sharing .start-card {display: flex; padding: 0; border: 0; background: transparent;}
-  #sessionView.sharing .start-card .button {min-height: 44px;}
-}
-@media (max-width: 450px) {
-  .start-card {grid-template-columns: 1fr; gap: 3px;}
-  .start-card > .button {grid-column: 1; grid-row: auto; justify-self: start; margin-top: 8px;}
+@media (max-width:380px) {
+  .model-picker {flex-wrap:wrap}
 }

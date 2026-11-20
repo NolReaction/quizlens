@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.request import ProxyHandler, build_opener
+from urllib.request import ProxyHandler, Request, build_opener
 import zipfile
 
 
@@ -67,11 +67,18 @@ def smoke(archive, signing):
                 info = json.load(response)
             if info.get("version") != expected or info.get("platform") != expected_platform:
                 raise ValueError(f"Unexpected running server: {info}")
+            profile = {"platform": "windows", "accelerator": "discrete", "ramGiB": 32, "vramGiB": 10}
+            request = Request(url + "/api/advisor", data=json.dumps(profile).encode(),
+                              headers={"Content-Type": "application/json"})
+            with local.open(request, timeout=7) as response:
+                advice = json.load(response)
+            if not advice.get("primary") or not advice.get("catalog"):
+                raise ValueError("The packaged advisor could not load its model catalog.")
             for path in ("/", "/setup", "/train", "/journal", "/demo?lobby=1"):
                 with local.open(url + path, timeout=7) as response:
                     if response.status != 200 or b"<!doctype html>" not in response.read().lower():
                         raise ValueError(f"Could not open {path}")
-            for path in ("/demo-window.js", "/capture.css", "/train.js"):
+            for path in ("/demo-window.js", "/capture.css", "/train.js", "/token-usage.js"):
                 with local.open(url + path, timeout=7) as response:
                     if response.status != 200 or not response.read(1):
                         raise ValueError(f"Missing UI asset: {path}")

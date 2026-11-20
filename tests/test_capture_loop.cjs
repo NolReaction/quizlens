@@ -58,6 +58,7 @@ async function makeSession() {
     }}},
     fetch: async path => ({ ok: true, json: async () => path === '/api/models' ? { models: [] } : { lectures: [] } }),
   });
+  vm.runInContext(readFileSync(join(__dirname, '../ui/token-usage.js'), 'utf8'), context);
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   vm.runInContext(`
@@ -233,7 +234,7 @@ test('auto capture confirms mode changes even on identical OCR; choices follow t
   const contents=node('answer').children;
   assert.deepEqual(contents.slice(0,3).map(item=>item.textContent),['Отметь 1 и 3','1. x²','3. 10 %']);
   assert.deepEqual(contents.at(-1).children.map(item=>item.textContent),
-    ['Подтверждения из лекции','Вариант 1 · Лекция, раздел 1','x² подтверждено','Вариант 3 · Лекция, раздел 3','10 % подтверждено']);
+    ['Цитаты из документов','Вариант 1 · Лекция, раздел 1','x² подтверждено','Вариант 3 · Лекция, раздел 3','10 % подтверждено']);
 
   const reordered=[initial[0],...initial.slice(1).reverse()];
   await detect(reordered,'multiple',2);await detect(reordered,'multiple',2);

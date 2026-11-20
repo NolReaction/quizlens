@@ -59,7 +59,8 @@ function drawAnswer(container, info) {
     for (const item of info.selections) addText(container, 'answer-text', item.choice + '. ' + item.text);
     const details = container.ownerDocument.createElement('details');
     const summary = container.ownerDocument.createElement('summary');
-    summary.textContent = 'Подтверждения из лекции';
+    details.open = true;
+    summary.textContent = 'Цитаты из документов';
     details.append(summary);
     for (const item of info.selections) {
       addText(details, 'answer-source', 'Вариант ' + item.choice + ' · ' + item.source);
@@ -78,6 +79,7 @@ function drawAnswer(container, info) {
     link.textContent = 'Разобрать ответ ↗';
     container.append(link);
   }
+  if (info.tokenUsage) addText(container, 'hint', formatQuizTokenUsage(info.tokenUsage));
   addText(container, 'hint', info.journalWarning);
 }
 function answer(info) {
@@ -101,7 +103,7 @@ function showTexts(texts) {
   });
   box.append(list);
 }
-function idleAnswer() { answer({title:'Жду вопрос', subtitle:'Здесь появятся вариант ответа и фрагмент лекции.'}); }
+function idleAnswer() { answer({title:'Жду вопрос', subtitle:'Здесь появятся ответ и цитата из отмеченного документа.'}); }
 function controls() {
   const sharing = Boolean(state.stream);
   const auto = state.layoutMode === 'auto';
@@ -117,7 +119,7 @@ function controls() {
   el('share').textContent = sharing ? 'Сменить окно' : 'Выбрать окно';
   el('share').classList.toggle('primary', !sharing);
   el('sessionView').classList.toggle('reading', state.running);
-  el('materialSummary').textContent = state.selected.size ? 'Выбрано файлов · '+state.selected.size : 'Выбери лекцию';
+  el('materialSummary').textContent = 'Отмечено '+state.selected.size+' из '+state.lectures.length;
   el('release').hidden = !sharing;
   el('autoLayout').hidden = !sharing || (auto && !state.autoFocus);
   el('autoLayout').textContent = auto ? 'Искать во всём окне' : 'Вернуть авторазметку';
@@ -131,7 +133,7 @@ function controls() {
   el('reuse').hidden = !sharing || !auto || !saved || !Array.isArray(saved.areas)
     || !validFields(saved.areas.length) || !Number.isFinite(aspect) || Math.abs(aspect/saved.aspect-1) > .04;
   el('runHint').textContent = !sharing ? 'Окно не выбрано'
-    : !state.selected.size ? 'Выбери лекцию'
+    : !state.selected.size ? 'Отметь документ'
     : !active ? 'Чтение на паузе'
     : auto ? (validFields(state.regions.length) ? 'Авторазметка · вопрос найден' : 'Авторазметка · ожидаю вопрос')
     : 'Чтение выделенных областей';
@@ -165,26 +167,31 @@ function applySettingsChange() {
 function renderLectures() {
   const list = el('lectureList');
   list.replaceChildren();
-  if (!state.lectures.length) addText(list, 'hint', 'Добавь PDF, PPTX, IPYNB, TXT, Markdown или карточки .quiz.json.');
-  state.lectures.forEach(lecture => {
-    const label = document.createElement('label');
-    label.className = 'lecture-item';
-    const check = document.createElement('input');
-    check.type = 'checkbox';
-    check.checked = state.selected.has(lecture.id);
-    check.addEventListener('change', () => {
-      if (check.checked) state.selected.add(lecture.id); else state.selected.delete(lecture.id);
-      remember('selected', [...state.selected]);
-      applySettingsChange();
-    });
-    const name = document.createElement('span');
-    name.textContent = lecture.name;
-    const count = document.createElement('small');
-    count.textContent = '· '+lecture.count+' фрагм.';
-    name.append(count);
-    label.append(check,name);
-    list.append(label);
-  });
+  if (!state.lectures.length) addText(list, 'hint', 'Добавь документ, чтобы искать в нём ответы.');
+  const groups = [
+    ['Твои документы', state.lectures.filter(item => !item.builtIn)],
+    ['Примеры для пробного квиза', state.lectures.filter(item => item.builtIn)]
+  ];
+  for (const [title, items] of groups) {
+    if (!items.length) continue;
+    addText(list, 'document-group', title);
+    for (const item of items) {
+      const label = document.createElement('label');
+      label.className = 'lecture-item';
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.checked = state.selected.has(item.id);
+      check.addEventListener('change', () => {
+        if (check.checked) state.selected.add(item.id); else state.selected.delete(item.id);
+        remember('selected', [...state.selected]);
+        applySettingsChange();
+      });
+      const name = document.createElement('span');
+      name.textContent = item.name;
+      label.append(check, name);
+      list.append(label);
+    }
+  }
   controls();
 }
 async function loadLectures() {
@@ -228,7 +235,9 @@ async function loadModels() {
     const list = await api('/api/models');
     models = list.models || [];
   } catch(error) {
-    errorMessage = 'Доступны проверенные карточки. '+error.message;
+    errorMessage = error.message.startsWith('Нет связи с локальным сервером')
+      ? 'Сервер недоступен. Для подключения открой настройку LM Studio. Пробные карточки уже доступны.'
+      : error.message;
   }
   if (version!==modelLoadVersion) return;
   const desired = settings().model ?? '';
@@ -238,7 +247,7 @@ async function loadModels() {
   input.value = models.includes(desired) ? desired : '';
   el('modelInfo').textContent = errorMessage || (input.value ? 'Модель доступна через локальный сервер.'
     : models.length ? 'Выбери модель для ответов на новые формулировки.'
-    : 'Карточки работают сразу. Для ответов по лекции загрузи модель и включи сервер в Bionic или LM Studio.');
+    : 'Карточки работают сразу. Для ответов по документам загрузи модель и включи сервер в Bionic или LM Studio.');
   el('refresh').disabled = false;
   if (old!==input.value) applySettingsChange(); else controls();
 }
@@ -566,8 +575,8 @@ function start() {
       : 'Рамки появятся автоматически. Если нужные области не нашлись, нажми «Разметить области».';
   }
   if(!state.running) {
-    controls();status('Выбери лекцию');showTexts(null);
-    answer({title:'Выбери лекцию',subtitle:'После выбора материала авторазметка включится сама.'});
+    controls();status('Отметь документ');showTexts(null);
+    answer({title:'Отметь документ',subtitle:'Отметь хотя бы один файл в шаге «Добавь документы». Чтение начнётся автоматически.'});
     return;
   }
   controls(); status('Читаю окно','active'); notify();
@@ -592,7 +601,7 @@ function selectionForFrame(hint,optionCount) {
 }
 function displayResult(result, options, selection) {
   state.displayedKey=state.currentKey;
-  const journal = {journalId:result.journalId,journalWarning:result.journalWarning};
+  const journal = {journalId:result.journalId,journalWarning:result.journalWarning,tokenUsage:result.tokenUsage};
   if (selection.selectionMode==='multiple') {
     const choices=result.choices;
     if (Array.isArray(choices) && choices.length && Array.isArray(result.evidence) && new Set(choices).size===choices.length &&
@@ -614,7 +623,7 @@ function displayResult(result, options, selection) {
     status('Ответ готов','active');
     return;
   }
-  answer({...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Проверь найденный фрагмент лекции.',source:result.source,excerpt:result.excerpt,unclear:true});
+  answer({...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Сверь ответ с найденным фрагментом документа.',source:result.source,excerpt:result.excerpt,unclear:true});
   status('Проверь источник','problem');
 }
 function cacheResult(key, result) {
@@ -624,14 +633,14 @@ function cacheResult(key, result) {
 async function solve(texts,key,session,selection) {
   const cached=answerCache.get(key);
   if(cached) {
-    if(state.displayedKey!==key) displayResult(cached,texts.slice(1),selection);
+    if(state.displayedKey!==key) displayResult({...cached, tokenUsage:{source:'cache'}},texts.slice(1),selection);
     return;
   }
   if(state.solveJob?.key===key || performance.now()<state.retrySolveAt) return;
   state.solveJob?.controller.abort();
   const job={key,controller:new AbortController()};state.solveJob=job;
   const options=texts.slice(1);
-  answer({title:'Ищу в лекциях…'});status('Ищу ответ','active');
+  answer({title:'Ищу в документах…'});status('Ищу ответ','active');
   try {
     const params={question:texts[0],options,...selection,model:el('model').value,lectureIds:[...state.selected],
       record:el('record').checked,channel:'browser'};
@@ -708,7 +717,6 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
       }
       status('Ожидаю варианты','active');
     } else if (selection.selectionMode==='unknown') {
-      el('captureSettings').open=true;
       answer({title:'Уточни формат вопроса',subtitle:'В поле «Сколько вариантов можно отметить?» выбери «Один вариант» или «Несколько вариантов».',unclear:true});
       status('Нужен формат','problem');
     }

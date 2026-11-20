@@ -25,8 +25,8 @@ class AdvisorTest(unittest.TestCase):
         self.assertEqual(spacious["alternative"]["id"], "qwen2.5-7b-instruct")
         for card in (portable["primary"], basic["primary"], spacious["alternative"]):
             self.assertEqual(card["quant"], "Q4_K_M")
-            self.assertIn("/blob/main/", card["fileUrl"])
-            self.assertIn("/resolve/main/", card["downloadUrl"])
+            self.assertRegex(card["fileUrl"], r"/blob/[0-9a-f]{40}/")
+            self.assertRegex(card["downloadUrl"], r"/resolve/[0-9a-f]{40}/")
             self.assertTrue(card["downloadUrl"].lower().endswith("q4_k_m.gguf?download=true"))
 
     def test_dedicated_gpu_and_cpu_use_separate_memory(self):
@@ -53,6 +53,47 @@ class AdvisorTest(unittest.TestCase):
         for unrelated in (base + "-thinking", "qwen3-4b-thinking-2507", f"{base}-Q8_0.gguf",
                           f"my-{base}", "qwen2.5-vl-7b-instruct", base + "-coder", ""):
             self.assertIsNone(advise("macos", "apple", 24, models=[unrelated])["installedMatch"])
+
+    def test_catalog_specs_are_consistent_with_the_distributed_text_files(self):
+        result = advise("windows", "discrete", 32, 10)
+        catalog = {card["id"]: card for card in result["catalog"]}
+        sizes = [card["fileBytes"] for card in result["catalog"]]
+        self.assertEqual(sizes, sorted(sizes))
+        self.assertEqual(len(catalog), len(result["catalog"]))
+        self.assertGreaterEqual(len(catalog), 10)
+        for key in ("primary", "alternative"):
+            card = result[key]
+            self.assertEqual(card, catalog[card["id"]])
+        for card in catalog.values():
+            self.assertEqual(card["fileUrl"].replace("/blob/", "/resolve/") + "?download=true", card["downloadUrl"])
+            self.assertTrue(card["fileUrl"].endswith("/" + card["filename"]))
+            self.assertGreater(card["fileBytes"], 0)
+            self.assertGreater(card["parametersB"], 0)
+            self.assertTrue(card["sourceUrl"].startswith("https://huggingface.co/"))
+            if card["maxOutputTokens"] is not None:
+                self.assertLessEqual(card["maxOutputTokens"], card["contextTokens"])
+        qwen7 = catalog["qwen2.5-7b-instruct"]
+        self.assertEqual((qwen7["contextTokens"], qwen7["maxOutputTokens"]), (32768, 8192))
+        mixture = catalog["qwen3-30b-a3b-instruct-2507"]
+        self.assertEqual((mixture["parametersB"], mixture["activeParametersB"]), (30.5, 3.3))
+        self.assertIsNone(mixture["maxOutputTokens"])
+        self.assertEqual(mixture["fit"], "limited")
+
+    def test_catalog_even_when_profile_or_runtime_is_unavailable(self):
+        for system, accelerator, ram, details, label in (
+                ("linux", "cpu", None, {}, "unknown"), ("macos", "apple", 4, {}, "limited"),
+                ("macos", "unknown", 32, {"arch": "x86_64"}, "unsupported"),
+                ("windows", "discrete", 32, {"arch": "amd64", "avx2": False}, "unsupported")):
+            result = advise(system, accelerator, ram, **details)
+            self.assertIsNone(result["primary"])
+            self.assertIsNone(result["alternative"])
+            self.assertEqual({card["fit"] for card in result["catalog"]}, {label})
+
+    def test_suggestions_cover_both_ends_of_the_memory_range(self):
+        self.assertEqual(advise("linux", "cpu", 8)["alternative"]["id"], "qwen2.5-0.5b-instruct")
+        self.assertEqual(advise("macos", "apple", 32)["alternative"]["id"], "gemma-3-12b-it")
+        self.assertEqual(advise("windows", "discrete", 64, 16)["alternative"]["id"], "qwen2.5-14b-instruct")
+        self.assertEqual(advise("macos", "apple", 48)["alternative"]["id"], "qwen3-30b-a3b-instruct-2507")
 
     def test_manual_validation(self):
         for data in ([], {"platform": {}}, {"accelerator": ["cpu"]}, {"ramGiB": 0}, {"ramGiB": "16"},

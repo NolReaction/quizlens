@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/native.css">
   <script defer src="/demo-window.js"></script>
   <script defer src="/visual-transfer.js"></script>
+  <script defer src="/token-usage.js"></script>
   <script defer src="/native.js"></script>
 </head>
 <body>
@@ -18,9 +19,6 @@
 </div></header>
 <main id="native-main">
   <div class="page-title native-title"><h1>Захват окна macOS</h1><a href="/" class="button">К захвату вкладки</a></div>
-  <div class="answer-setting"><label for="selection-mode">Режим ответа</label>
-    <select id="selection-mode"><option value="auto">Авто</option><option value="single">Один</option><option value="multiple">Несколько</option></select>
-  </div>
   <div id="setup" class="workspace">
     <section class="panel">
       <h2>Окно квиза</h2>
@@ -44,20 +42,26 @@
           <button type="button" id="reuse" class="button" hidden>Прошлая разметка</button>
         </div>
       </div>
-    </section>
-    <section class="panel">
-      <div class="section-head"><h2>Лекции</h2><div class="native-upload"><input id="files" class="sr-only" type="file" multiple accept=".pptx,.pdf,.txt,.md,.json,.ipynb"><label class="button clickable" for="files">Добавить лекцию</label></div></div>
-      <div id="lectures" class="native-lectures"></div><p id="files-info" class="hint" role="status"></p>
-      <div class="setting-line"></div><div class="section-head model-head"><label for="model">Локальная модель</label><button class="mini-button" id="models" type="button">Обновить</button></div>
-      <select id="model"><option value="">Карточки и поиск (без модели)</option></select><p id="model-info" class="hint"></p>
-      <div class="native-entry-actions"><a class="button" href="/setup#connection">Настроить LM Studio</a></div>
-      <details class="capture-settings"><summary>Параметры и проверка</summary>
-        <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом Mac</label>
-        <div class="result-tools"><a class="subtle" href="/check">Проверить модель и OCR</a></div>
-      </details>
       <button type="button" id="start" class="button run" hidden disabled>Начать чтение по разметке</button>
       <p class="hint" id="ready" role="status"></p>
     </section>
+    <section class="panel native-sources" aria-label="Модель и источники ответов">
+      <h2>Локальная модель</h2>
+      <label class="native-field" for="model">Модель для ответа</label>
+      <div class="native-picker"><select id="model" aria-describedby="model-info"><option value="">Карточки и поиск (без модели)</option></select>
+        <button class="mini-button" id="models" type="button">Обновить</button></div>
+      <p id="model-info" class="hint" role="status"></p>
+      <div class="native-entry-actions"><a class="button" href="/setup#connection">Настроить LM Studio</a><a class="subtle" href="/check">Проверить модель и OCR →</a></div>
+      <div class="setting-line"></div><h2 id="native-documents">Источники ответов</h2>
+      <p class="hint native-intro">Загрузи свой документ и отметь файлы, в которых QuizLens будет искать ответ. Встроенные примеры подходят для пробного квиза.</p>
+      <div class="native-upload"><input id="files" class="sr-only" type="file" multiple accept=".pptx,.pdf,.txt,.md,.json,.ipynb"><label class="button clickable" for="files">Добавить документ</label></div>
+      <div id="lectures" class="native-lectures" role="group" aria-labelledby="native-documents"></div><p id="files-info" class="hint" role="status"></p>
+      <div class="setting-line"></div>
+      <label class="record-label"><input type="checkbox" id="record" checked> Сохранять вопросы и подсказки в журнале на этом Mac</label>
+    </section>
+  </div>
+  <div class="answer-setting"><label for="selection-mode">Сколько вариантов можно отметить?</label>
+    <select id="selection-mode"><option value="auto">Авто · по вопросу</option><option value="single">Один</option><option value="multiple">Несколько</option></select>
   </div>
   <section id="live" class="panel" hidden>
     <div class="section-head"><h2>Ответ</h2><div class="capture-controls"><button type="button" class="button" id="manual-live" hidden>Разметить вручную</button><button type="button" class="button" id="stop">Остановить</button></div></div>
@@ -68,7 +72,7 @@
     </div>
     <div class="result-tools"><a id="review" class="subtle" href="/journal" target="_blank" rel="noopener" hidden>Разобрать ответ ↗</a>
       <a id="visual" class="subtle" href="/visual" target="_blank" rel="noopener">Разобрать график или таблицу ↗</a></div>
-    <details><summary>Распознанный текст</summary><p id="current-question"></p><ol id="options"></ol></details>
+    <section class="native-transcript"><h2>Распознанный текст</h2><p id="current-question"></p><ol id="options"></ol></section>
   </section>
 </main>
 </body></html>

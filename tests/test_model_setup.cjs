@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const directory = path.join(__dirname,'../ui');
 const html = readFileSync(path.join(directory,'setup.html'),'utf8');
 const js = readFileSync(path.join(directory,'setup.js'),'utf8');
+const usageJs = readFileSync(path.join(directory,'token-usage.js'),'utf8');
 const wait = () => new Promise(resolve=>setImmediate(resolve));
 const card = {
   id:'qwen3-4b-instruct-2507',name:'Qwen3-4B-Instruct-2507',fileSize:'2,50 ГБ',quant:'Q4_K_M',installedId:'qwen4',
@@ -43,6 +44,7 @@ async function browser({info=auto,store=values(),benchmark=sample}={}) {
   };
   const context=vm.createContext({document:{getElementById:id=>nodes[id],createElement:tag=>new Field(tag)}, fetch, Option, URL,
     navigator:{clipboard:{writeText:async()=>{}}},localStorage:{getItem:key=>store.get(key),setItem:(key,val)=>store.set(key,val)}});
+  vm.runInContext(usageJs,context);
   vm.runInContext(js,context);
   await wait();
   return {nodes,calls,store};
@@ -67,7 +69,8 @@ test('offline recommendation can be downloaded; a Windows manual preview neither
   const {nodes,store,calls}=await browser({info:{...auto,serverAvailable:false,models:[],primary:{...card,installedId:null}}});
   assert.equal(nodes['recommendation'].hidden,false);
   assert.equal(nodes['available'].hidden,true);
-  assert.equal(nodes['install'].open,true);
+  assert.equal(nodes['install'].hidden,false);
+  assert.doesNotMatch(html, /<details[^>]+id="install"/);
   nodes['device-switch'].onclick();
   assert.equal(nodes['local-panel'].hidden,true);
   nodes.platform.value='windows';
@@ -133,4 +136,32 @@ test('a slow first call with fast subsequent answers suggests warming the model'
   await nodes.benchmark.onclick();
   assert.match(nodes['bench-summary'].textContent,/2 из 3/);
   assert.match(nodes['bench-summary'].textContent,/оставь модель загруженной/);
+});
+
+test('alternative and additional models show distinct names, limits and token example without opening details', async () => {
+  const primary = {...card, parametersB:4, contextTokens:32768, maxOutputTokens:8192};
+  const alternative = {...primary, id:'second', name:'Second model', maxOutputTokens:null};
+  const other = {...primary, id:'third', name:'Third model', fit:'limited', fitLabel:'Мало памяти'};
+  const example = {inputTokens:631, outputTokens:7, outputLimitSingle:80, outputLimitMultipleMin:160, outputLimitMultipleMax:224};
+  const {nodes} = await browser({info:{...auto, primary, alternative, catalog:[primary, alternative, other], quizTokenExample:example}});
+  assert.doesNotMatch(html, /<details[^>]+id="alternative"/);
+  assert.equal(nodes.alternative.hidden, false);
+  const limits = nodes['other-model'].children.find(node => node.tag==='dl').children;
+  assert.ok(limits.some(row => row.children[0].textContent === 'Параметры' && row.children[1].textContent === '4 млрд'));
+  assert.ok(limits.some(row => row.children[0].textContent === 'Макс. ответ' && row.children[1].textContent === 'Не указан автором'));
+  assert.equal(nodes['model-catalog'].hidden, false);
+  const [entry] = nodes['catalog-grid'].children;
+  assert.equal(nodes['catalog-grid'].children.length, 1);
+  assert.ok(entry.children.some(child => child.textContent === other.name));
+  assert.equal(nodes['quiz-budget'].hidden, false);
+  assert.match(nodes['example-input'].textContent, /631/);
+  assert.match(nodes['budget-limits'].textContent, /80.+160.+224/);
+});
+
+test('catalog remains visible on unsupported or unknown hardware even without a recommended model', async () => {
+  const {nodes} = await browser({info:{...auto, needsHardware:true, primary:null, alternative:null, catalog:[card]}});
+  assert.equal(nodes['recommendation'].hidden, false);
+  assert.equal(nodes['alternative'].hidden, true);
+  assert.equal(nodes['catalog-grid'].children.length, 1);
+  assert.equal(nodes['model-catalog'].hidden, false);
 });

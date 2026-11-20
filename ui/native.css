@@ -34,3 +34,15 @@ body.reading .top, body.reading .page-title { display:none; }
 @media (max-width:480px) {
   #native-main .native-entry-actions > *, #native-main #setup .capture-controls > .button { flex:1 1 100%; }
 }
+
+#native-main .native-picker { display:flex; align-items:stretch; gap:8px; }
+#native-main .native-picker select { min-width:0; }
+#native-main .native-sources .native-field { margin-top:10px; }
+#native-main .native-sources .native-entry-actions { align-items:center; }
+#native-main .native-sources .native-lectures { margin-top:12px; }
+#native-main .native-sources .native-lectures label { min-height:30px; align-items:center; }
+#native-main .native-sources .native-lectures input { margin:0; }
+#native-main .native-sources .native-lectures .document-group { color:var(--sub); font-size:.85rem; }
+#native-main .native-transcript { border-top:1px solid var(--border); margin-top:16px; padding-top:12px; }
+#native-main .native-transcript h2 { font-size:1rem; }
+#native-main #setup + .answer-setting { margin-top:16px; }

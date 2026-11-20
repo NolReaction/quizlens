@@ -85,7 +85,8 @@ def host_hardware():
 def model_advice(manual_profile=None):
     if manual_profile is not None:
         result = advisor.recommend(manual_profile, model_ids=())
-        return {**result, "models": [], "serverAvailable": None, "serverError": "", "caseCount": model_bench.CASE_COUNT}
+        return {**result, "models": [], "serverAvailable": None, "serverError": "", "caseCount": model_bench.CASE_COUNT,
+                "quizTokenExample": model_bench.quiz_token_example()}
     profile = host_hardware()
     try:
         models = engine.list_models(base_url=ENDPOINT, timeout=3)
@@ -93,7 +94,8 @@ def model_advice(manual_profile=None):
     except RuntimeError as exc:
         models, error = [], str(exc)
     return {**advisor.recommend(profile, model_ids=models), "models": models,
-            "serverAvailable": not error, "serverError": error, "caseCount": model_bench.CASE_COUNT}
+            "serverAvailable": not error, "serverError": error, "caseCount": model_bench.CASE_COUNT,
+            "quizTokenExample": model_bench.quiz_token_example()}
 
 
 class Corpus:
@@ -101,6 +103,7 @@ class Corpus:
         self.folder = directory
         self.folder.mkdir(parents=True, exist_ok=True)
         self.entries = {}
+        self.example_ids = set()
         self.cache = {}
         self.lock = threading.RLock()
         for path in sorted(self.folder.glob("*.json")):
@@ -112,11 +115,12 @@ class Corpus:
                 print("Не удалось прочитать сохранённый индекс", path.name, file=sys.stderr)
         for path in sorted((ROOT / "examples").glob("*")):
             if path.is_file() and recognized(path.name):
-                self.add(path, bundled=path.name == "analytics-demo.quiz.json")
+                entry = self.add(path, bundled=path.name == "analytics-demo.quiz.json")
+                self.example_ids.add(entry["id"])
 
-    @staticmethod
-    def description(row):
-        return {"id": row["id"], "name": row["name"], "count": len(row["sections"])}
+    def description(self, row):
+        return {"id": row["id"], "name": row["name"], "count": len(row["sections"]),
+                "builtIn": row["id"] in self.example_ids}
 
     def list(self):
         with self.lock:
@@ -158,11 +162,11 @@ class Corpus:
 
     def index(self, ids):
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
-            raise ValueError("Выбери хотя бы одну лекцию.")
+            raise ValueError("Отметь хотя бы один документ.")
         key = tuple(sorted(set(ids)))
         with self.lock:
             if any(i not in self.entries for i in key):
-                raise ValueError("Обнови список лекций и выбери материалы снова.")
+                raise ValueError("Обнови список документов и выбери источники снова.")
             if key not in self.cache:
                 if len(self.cache) >= 8:
                     self.cache.clear()
@@ -196,6 +200,7 @@ class QuizServer(ThreadingHTTPServer):
             hint = {"selectionMode": "unknown", "expectedCount": None}
         if hint["selectionMode"] == "unknown":
             return {**hint, "choices": [], "choice": None, "evidence": [], "kind": "none", "source": "", "excerpt": "",
+                    "tokenUsage": {"source": "none"},
                     "detail": "Указания о числе ответов расходятся. Проверь формулировку и выбери режим ответа."}
         if count is not None:
             hint["expectedCount"] = count
@@ -226,12 +231,14 @@ class QuizServer(ThreadingHTTPServer):
             except RuntimeError as error:
                 if not record:
                     raise
-                result = {"choices": [], "choice": None, "evidence": [], "kind": "error", "detail": str(error)}
+                result = {"choices": [], "choice": None, "evidence": [], "kind": "error", "detail": str(error),
+                          "tokenUsage": {"source": "unknown"}}
         choices = result["choices"]
         evidence = [{"choice": item["choice"], "source": item["source"], "excerpt": item["quote"]}
                     for item in result["evidence"]]
         response = {**hint, "choice": result["choice"], "choices": choices, "evidence": evidence, "kind": result["kind"],
                 "source": result.get("source", ""), "excerpt": result.get("quote", ""),
+                "tokenUsage": result.get("tokenUsage", {"source": "none"}),
                 "detail": result.get("detail") or ("" if choices else
                 ("Подтверждённого ответа в карточках нет. Для разбора лекции выбери модель."
                  if not model else "В найденном тексте модель не подтвердила ни один вариант."))}

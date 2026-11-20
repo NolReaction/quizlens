@@ -80,6 +80,45 @@ def check_selected_window(page):
     expect(page.locator("#run")).to_be_hidden()
 
 
+def check_model_choices(page, directory, prefix):
+    # CI machines differ in GPU and RAM. Use the same hardware as a reader
+    # choosing models for a typical Windows desktop, through the visible form.
+    page.locator("#device-switch").click()
+    page.locator("#platform").select_option("windows")
+    page.locator("#accelerator").select_option("discrete")
+    page.locator("#ram").fill("32")
+    page.locator("#vram").fill("12")
+    page.locator("#calculate").click()
+    for candidate in ("#primary-model", "#other-model"):
+        card = page.locator(candidate)
+        specs = card.locator(".model-specs")
+        expect(specs).to_be_visible()
+        expect(specs).to_contain_text(re.compile("параметр", re.I))
+        expect(specs).to_contain_text(re.compile("контекст", re.I))
+        expect(specs).to_contain_text(re.compile("ответ", re.I))
+        expect(specs).to_contain_text(re.compile(r"\d[\d,]*\s*млрд"))
+        expect(card.get_by_role("link", name=re.compile("GGUF")).first).to_have_attribute(
+            "href", re.compile(r"^https://huggingface\.co/.+\.gguf(?:\?|$)", re.I))
+    page.locator("#primary-model").scroll_into_view_if_needed()
+    page_fits(page)
+    screenshot(page, directory, prefix + "-recommendations")
+
+    budget = page.locator("#quiz-budget")
+    expect(budget).to_be_visible()
+    expect(budget).to_contain_text(re.compile("вход", re.I))
+    expect(budget).to_contain_text(re.compile("выход", re.I))
+    for count in ("#example-input", "#example-output"):
+        expect(budget.locator(count)).to_contain_text(re.compile(r"≈\s*[1-9]"))
+    page.locator("#catalog-link").click()
+    entries = page.locator("#model-catalog article")
+    expect(entries.nth(4)).to_be_visible()
+    names = page.locator(".shortlist article h3, #model-catalog article h3").all_inner_texts()
+    assert len(set(names)) >= 7, f"Expected at least seven distinct model choices: {names}"
+    page_fits(page)
+    screenshot(page, directory, prefix + "-catalog")
+    page.locator("#device-switch").click()
+
+
 def check_first_run(browser, url, width, height, directory):
     ctx = browser.new_context(viewport={"width": width, "height": height}, locale="ru-RU")
     errors = []
@@ -88,15 +127,52 @@ def check_first_run(browser, url, width, height, directory):
     prefix = "desktop" if width > 800 else "mobile"
     try:
         page.goto(url)
-        expect(page.locator(".start-cards article")).to_have_count(3)
-        demo_link = page.locator("a[data-demo-window]").first
-        visible_action(page.locator("#share"))
-        visible_action(demo_link)
-        visible_action(page.locator("#addLecture"), above_fold=width > 800)
-        visible_action(page.locator("#modelAdvisor"), above_fold=width > 800)
+        steps = page.locator("#modelStep, #materials, #windowStep")
+        expect(steps).to_have_count(3)
+        assert steps.evaluate_all("items => items.map(item => item.id)") == [
+            "modelStep", "materials", "windowStep"]
+        demo_link = page.locator("#windowStep a[data-demo-window]").first
+        visible_action(page.locator("#modelStep #modelAdvisor"))
+        visible_action(page.locator("#materials #addLecture"), above_fold=width > 800)
+        visible_action(page.locator("#windowStep #share"), above_fold=width > 800)
+        visible_action(demo_link, above_fold=width > 800)
+        if width <= 800:
+            visible_action(page.locator("#windowJump"))
         expect(page.locator("#navSetup")).to_be_in_viewport()
         page_fits(page)
         screenshot(page, directory, prefix + "-capture")
+        page.locator("#modelAdvisor").click()
+        expect(page).to_have_url(url + "/setup#connection")
+        expect(page.locator("#connection")).to_be_in_viewport()
+        expect(page.get_by_role("link", name=re.compile("Скачать LM Studio")).first).to_have_attribute(
+            "href", "https://lmstudio.ai/download")
+        page_fits(page)
+        screenshot(page, directory, prefix + "-lm-studio")
+        check_model_choices(page, directory, prefix)
+        page.locator("#jump-check").click()
+        expect(page.locator("#server-status")).to_have_attribute("data-state", "offline")
+        expect(page.locator("#refresh")).to_be_enabled()
+        expect(page.locator("#server-status")).to_contain_text(re.compile(r"LM Studio|Bionic"))
+        page.get_by_role("link", name=re.compile("Перейти к документам")).click()
+        expect(page).to_have_url(url + "/#materials")
+        expect(page.locator("#addLecture")).to_be_in_viewport()
+
+        with page.expect_file_chooser() as chosen:
+            page.locator("#addLecture").click()
+        lecture = f"ux-{prefix}.txt"
+        chosen.value.set_files({"name": lecture, "mimeType": "text/plain",
+                                "buffer": "Precision учитывает ложные срабатывания.".encode()})
+        selected = page.locator("#materials #lectureList").get_by_role("checkbox", name=re.compile(re.escape(lecture)))
+        expect(selected).to_be_checked()
+        selected.uncheck()
+        page.reload()
+        expect(selected).not_to_be_checked()
+        selected.check()
+        expect(selected).to_be_checked()
+
+        if width <= 800:
+            page.locator("#windowJump").click()
+            expect(page.locator("#windowStep #share")).to_be_in_viewport()
         with ctx.expect_page() as spawned:
             demo_link.click()
         popup = spawned.value
@@ -117,23 +193,6 @@ def check_first_run(browser, url, width, height, directory):
         popup.close()
 
         check_selected_window(page)
-        with page.expect_file_chooser() as chosen:
-            page.locator("#addLecture").click()
-        lecture = f"ux-{prefix}.txt"
-        chosen.value.set_files({"name": lecture, "mimeType": "text/plain",
-                                "buffer": "Precision учитывает ложные срабатывания.".encode()})
-        expect(page.locator("#lectureList")).to_contain_text(lecture)
-        page.locator("#modelAdvisor").click()
-        expect(page).to_have_url(url + "/setup#connection")
-        expect(page.locator("#connection")).to_be_in_viewport()
-        expect(page.get_by_role("link", name=re.compile("Скачать LM Studio")).first).to_have_attribute(
-            "href", "https://lmstudio.ai/download")
-        page_fits(page)
-        screenshot(page, directory, prefix + "-lm-studio")
-        page.locator("#jump-check").click()
-        expect(page.locator("#server-status")).to_have_attribute("data-state", "offline")
-        expect(page.locator("#refresh")).to_be_enabled()
-        expect(page.locator("#server-status")).to_contain_text(re.compile(r"LM Studio|Bionic"))
         page.goto(url + "/train")
         expect(page.locator("#practice")).to_be_enabled()
         expect(page.locator("#bench")).to_be_disabled()
@@ -175,7 +234,7 @@ def check_first_run(browser, url, width, height, directory):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--screenshots", type=Path, help="Store screenshots of the four first-run screens")
+    parser.add_argument("--screenshots", type=Path, help="Store first-run and model comparison screenshots")
     args = parser.parse_args()
     if args.screenshots:
         args.screenshots.mkdir(parents=True, exist_ok=True)

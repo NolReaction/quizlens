@@ -597,7 +597,7 @@ def _source_passages(text):
         label = ""
 
 
-def _evidence(hits, question, options):
+def evidence_passages(hits, question, options):
     """Keep the source for each ID on the server. IDs are local to one question."""
     question_terms = set(_tokens(question))
     option_terms = set(_tokens(" ".join(options)))
@@ -680,17 +680,50 @@ def _validate_question(question, options, selection_mode, expected_count):
         raise ValueError("Число правильных ответов не соответствует режиму выбора.")
 
 
-def _ask_model(base_url, model, system, material, max_tokens, timeout):
+def estimate_text_tokens(text):
+    # A coarse, tokenizer-independent estimate for mixed Russian, English and JSON.
+    return math.ceil(len(text.encode("utf-8")) / 4)
+
+
+def _model_messages(model, system, material):
     model_name = model.casefold()
     if (re.search(r"\bqwen3[-_:](?:0\.6|1\.7|4|8|14|30|32|235)b\b", model_name) and
             not any(tag in model_name for tag in ("thinking", "instruct", "coder"))):
         system += "\n/no_think"
-    completion = _api(base_url, "chat/completions", {
-        "model": model, "temperature": 0, "max_tokens": max_tokens, "stream": False,
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": json.dumps(material, ensure_ascii=False)}],
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(material, ensure_ascii=False)}]
+
+
+def _ask_model(base_url, model, messages, max_tokens, timeout):
+    return _api(base_url, "chat/completions", {
+        "model": model, "temperature": 0, "max_tokens": max_tokens, "stream": False, "messages": messages,
     }, timeout=timeout)
-    return _completion(completion)
+
+
+def estimate_input_tokens(messages):
+    # Chat templates add a small number of role and delimiter tokens.
+    return sum(4 + estimate_text_tokens(message["content"]) for message in messages)
+
+
+def _quiz_usage(completion, messages):
+    completion = completion if isinstance(completion, dict) else {}
+    usage = completion.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    input_count, output_count = usage.get("prompt_tokens"), usage.get("completion_tokens")
+    input_estimated = type(input_count) is not int or input_count < 0
+    output_estimated = type(output_count) is not int or output_count < 0
+    if input_estimated:
+        input_count = estimate_input_tokens(messages)
+    if output_estimated:
+        choices = completion.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        message = choice.get("message")
+        message = message if isinstance(message, dict) else {}
+        reasoning = message.get("reasoning_content") or message.get("reasoning")
+        parts = [part for part in (reasoning, message.get("content")) if isinstance(part, str) and part]
+        output_count = estimate_text_tokens("".join(parts)) if parts else None
+    return {"source": "model", "input": input_count, "output": output_count,
+            "inputEstimated": input_estimated, "outputEstimated": output_estimated}
 
 
 def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, selection_mode="single", expected_count=None):
@@ -715,9 +748,21 @@ def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, se
         row, question, current_options, selection_mode, expected_count))
     if not model or not hits:
         return _unknown(hits)
-    evidence = _evidence(hits, question, options)
+    evidence = evidence_passages(hits, question, options)
     if not evidence:
         return _unknown(hits)
+    messages = quiz_messages(model, question, options, evidence, selection_mode, expected_count)
+    limit = quiz_output_limit(selection_mode, expected_count or len(options))
+    completion = _ask_model(base_url, model, messages, limit, timeout)
+    result = _quiz_result(_completion(completion), evidence, hits, options, selection_mode, expected_count)
+    return {**result, "tokenUsage": _quiz_usage(completion, messages)}
+
+
+def quiz_output_limit(selection_mode, answer_count):
+    return 80 if selection_mode == "single" else max(160, 24 * answer_count + 32)
+
+
+def quiz_messages(model, question, options, evidence, selection_mode, expected_count):
     system = (
         "Сопоставь каждый предложенный вариант с выдержками из лекции. "
         "В вопросе о неверных утверждениях выбирай то, чему противоречит выдержка. Само отсутствие упоминания не доказывает ложность. "
@@ -740,8 +785,10 @@ def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, se
         )
     material = {"question": question, "options": {str(i): v for i, v in enumerate(options, 1)},
                 "fragments": [passage for _, passage in evidence]}
-    token_budget = 80 if selection_mode == "single" else max(160, 24 * (expected_count or len(options)) + 32)
-    answer = _ask_model(base_url, model, system, material, token_budget, timeout)
+    return _model_messages(model, system, material)
+
+
+def _quiz_result(answer, evidence, hits, options, selection_mode, expected_count):
     if not answer:
         return dict(_unknown(hits), detail="Модель не вернула читаемый выбор. Проверь режим рассуждений или попробуй другую instruct-модель.")
     if selection_mode == "multiple":
@@ -799,7 +846,7 @@ def explain_option(question, options, index, model, option, *, base_url=LOCAL_AP
     # An adjacent solved card can name an answer without explaining anything
     # about the current question. Retrieve actual lecture text for reasoning.
     hits = index.search(question + " " + target, options, accept=lambda row: "question" not in row)
-    for row, passage in _evidence(hits, question, [target]):
+    for row, passage in evidence_passages(hits, question, [target]):
         passages.append((_source(row), {**passage, "id": len(passages) + 1}))
     if fallback["verdict"] == "insufficient" and passages:
         fallback.update(source=passages[0][0], quote=passages[0][1]["text"])
@@ -823,7 +870,8 @@ def explain_option(question, options, index, model, option, *, base_url=LOCAL_AP
     if expected_count is not None:
         material["expectedCount"] = expected_count
     try:
-        answer = _ask_model(base_url, model, system, material, 320, timeout)
+        messages = _model_messages(model, system, material)
+        answer = _completion(_ask_model(base_url, model, messages, 320, timeout))
     except RuntimeError as exc:
         return fallback if fallback["verdict"] != "insufficient" else {**fallback, "explanation": str(exc)}
     verdict = answer.get("verdict")

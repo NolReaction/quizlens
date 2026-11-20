@@ -1,6 +1,7 @@
 """Measure three text questions using the same retrieval and solver as live capture."""
 
 from functools import lru_cache
+import json
 from pathlib import Path
 from time import monotonic_ns
 from typing import NamedTuple
@@ -38,6 +39,21 @@ def _lecture():
     # The shipped text and the answer key have separate paths to the solver.
     path = Path(__file__).resolve().parent / "examples" / "analytics-demo.txt"
     return engine.LectureIndex(engine.import_document(path))
+
+
+@lru_cache(maxsize=1)
+def quiz_token_example():
+    """Preview the bundled median question with its real text passages, offline."""
+    case = CASES[0]
+    hits = _lecture().search(case.question, case.options)
+    evidence = engine.evidence_passages(hits, case.question, case.options)
+    messages = engine.quiz_messages("", case.question, case.options, evidence, "single", 1)
+    reply = {"choice": case.expected[0], "evidence": 1}
+    return {"inputTokens": engine.estimate_input_tokens(messages),
+            "outputTokens": engine.estimate_text_tokens(json.dumps(reply)),
+            "outputLimitSingle": engine.quiz_output_limit("single", 1),
+            "outputLimitMultipleMin": engine.quiz_output_limit("multiple", 1),
+            "outputLimitMultipleMax": engine.quiz_output_limit("multiple", engine.MAX_OPTIONS)}
 
 
 def run_case(model, case_index, *, base_url=engine.LOCAL_API):
@@ -86,4 +102,5 @@ def run_case(model, case_index, *, base_url=engine.LOCAL_API):
         status = "unconfirmed"
         detail = result.get("detail") or "Модель не подтвердила ответ выдержкой из лекции."
     return dict(response, elapsedMs=elapsed_ms, choices=choices, correct=correct, withinBudget=within_budget,
-                withinLiveTimeout=elapsed_ms <= 10000, passed=correct and within_budget, status=status, detail=detail)
+                withinLiveTimeout=elapsed_ms <= 10000, passed=correct and within_budget, status=status, detail=detail,
+                tokenUsage=result.get("tokenUsage", {"source": "none"}))

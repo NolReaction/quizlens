@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LM Studio и локальная модель · QuizLens</title>
-  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/setup.css"><script src="/setup.js" defer></script>
+  <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/setup.css"><script src="/token-usage.js" defer></script><script src="/setup.js" defer></script>
 </head>
 <body>
 <header class="top"><div class="bar">
@@ -12,7 +12,7 @@
 </div></header>
 <main class="advisor">
   <h1 id="connection">LM Studio и локальная модель</h1>
-  <p class="lead">QuizLens читает окно и находит выдержки из лекций. LM Studio или Bionic запускает на твоём компьютере модель, которая выбирает ответ по этим выдержкам.</p>
+  <p class="lead">LM Studio или Bionic запускает модель на твоём компьютере. QuizLens передаёт ей вопрос, варианты и выдержки из выбранных документов.</p>
   <ol class="connection-steps" aria-label="Подключение модели">
     <li><h2>Установи приложение</h2>
       <p>На странице загрузки открой блок <b>Download LM Studio</b> и выбери свою систему. Уже пользуешься Bionic с локальной моделью? Переходи к серверу.</p>
@@ -40,21 +40,36 @@
         <label id="vram-field" for="vram" hidden>Память видеокарты, ГБ<input id="vram" type="number" inputmode="decimal" min="0.5" max="1024" step="any" placeholder="Например, 8"></label>
       </div>
       <p id="memory-help" class="muted small"></p>
-      <details class="spec-help"><summary>Где посмотреть память?</summary>
-        <p class="small muted">На Mac открой меню Apple → «Об этом Mac». В Windows нажми Ctrl+Shift+Esc и открой «Производительность». Объём ОЗУ указан в «Память», выделенная видеопамять — на странице графического процессора.</p>
-      </details>
+      <p class="small muted spec-help">На Mac открой меню Apple → «Об этом Mac». В Windows нажми Ctrl+Shift+Esc и открой «Производительность». Объём ОЗУ указан в «Память», выделенная видеопамять — на странице графического процессора.</p>
       <button class="button" type="submit" id="calculate">Подобрать по этим данным</button>
     </form>
   </section>
   <p id="advice-error" class="issue" role="alert" hidden></p>
-  <section id="recommendation" class="panel recommendation" aria-labelledby="recommendation-heading" hidden>
-    <h2 id="recommendation-heading">Модель для твоего компьютера</h2>
-    <div id="primary-model"></div>
-    <details id="alternative" hidden><summary>Ещё один вариант</summary><div id="other-model"></div></details>
+  <section id="recommendation" class="recommendation" aria-labelledby="recommendation-heading" hidden>
+    <div class="selection-heading">
+      <h2 id="recommendation-heading">Подбор модели</h2>
+      <a id="catalog-link" class="back-link" href="#model-catalog">К каталогу моделей ↓</a>
+    </div>
+    <div class="shortlist">
+      <article id="primary-model" class="model-card featured"></article>
+      <article id="alternative" class="model-card alternate" hidden><div id="other-model" class="card-inner"></div></article>
+    </div>
+    <p class="small muted spec-note">Контекст включает запрос и ответ вместе. «Макс. ответ» — предел генерации, если его указывает автор модели.</p>
     <ul id="notes" class="notes" hidden></ul>
-    <details id="install"><summary>Если поиск в каталоге не работает</summary>
-      <p class="small muted">Нажми «Скачать GGUF», чтобы получить файл модели через браузер. Для импорта в классический LM Studio введи в терминале <code>lms import</code>, пробел и путь к скачанному файлу в кавычках. После импорта выбери модель в чате. <a href="https://lmstudio.ai/docs/cli/local-models/import" target="_blank" rel="noopener noreferrer">Инструкция по импорту ↗</a></p>
-    </details>
+    <section id="quiz-budget" class="quiz-budget" aria-labelledby="budget-heading" hidden>
+      <div class="budget-intro"><h3 id="budget-heading">Сколько токенов нужно QuizLens</h3>
+        <p class="small muted">Оценка на одном примере. На вход идут вопрос, варианты и выдержки из документов. В ответе модель указывает номера варианта и фрагмента документа.</p>
+      </div>
+      <dl class="budget-stats">
+        <div><dt>Вход</dt><dd id="example-input"></dd></div>
+        <div><dt>Выход</dt><dd id="example-output"></dd></div>
+      </dl>
+      <p class="budget-limits small muted" id="budget-limits"></p>
+    </section>
+    <div id="install" class="install-help">
+      <h3>Если поиск в LM Studio недоступен</h3>
+      <p>Нажми «Скачать GGUF». В терминале введи <code>lms import</code>, пробел и путь к скачанному файлу в кавычках. Затем выбери модель в LM Studio. <a class="back-link" href="https://lmstudio.ai/docs/cli/local-models/import" target="_blank" rel="noopener noreferrer">Инструкция по импорту ↗</a></p>
+    </div>
   </section>
   <section id="local-panel" class="panel local-models" aria-labelledby="local-title" tabindex="-1">
     <div class="device-head"><h2 id="local-title">Проверка подключения</h2><button type="button" class="button" id="refresh">Обновить список</button></div>
@@ -62,10 +77,11 @@
     <p class="connection-state" id="server-status" role="status">Ищем локальный сервер…</p>
     <div id="available" hidden>
       <label for="installed-model">Модель для проверки</label><select id="installed-model"></select>
-      <p class="small muted">Выбери текстовую модель, например Qwen. Три вопроса покажут, отвечает ли она по лекции и успевает ли за 15 секунд. Первый запрос может занять дольше из-за загрузки модели.</p>
-      <div class="actions"><button type="button" class="button primary" id="benchmark">Проверить на трёх вопросах</button><button type="button" class="button" id="apply-model">Выбрать для захвата</button><a class="back-link" href="/">К захвату →</a></div>
+      <p class="small muted">Выбери текстовую модель, например Qwen. Три вопроса покажут, отвечает ли она по документу и успевает ли за 15 секунд. Первый запрос может занять дольше из-за загрузки модели.</p>
+      <div class="actions"><button type="button" class="button primary" id="benchmark">Проверить на трёх вопросах</button><button type="button" class="button" id="apply-model">Выбрать для захвата</button></div>
       <p class="small" id="applied" role="status"></p>
     </div>
+    <a class="button continue-route" href="/#materials">Перейти к документам →</a>
     <div id="bench-result" hidden><h3>Результат проверки</h3><p id="bench-summary" role="status"></p><ol id="bench-cases"></ol><a href="/check" class="back-link">Проверить вместе с распознаванием экрана →</a></div>
     <section class="comparison" id="comparison" aria-labelledby="comparison-title" hidden>
       <h3 id="comparison-title">Сравнение на этом компьютере</h3>
@@ -73,6 +89,13 @@
       <div class="compare-scroll"><table><thead><tr><th scope="col">Модель</th><th scope="col">Верно за 15 с</th><th scope="col">После первого запроса</th></tr></thead><tbody id="history-rows"></tbody></table></div>
     </section>
     <p class="small muted" id="cards-only" hidden>Пока модель скачивается, можно тренироваться на готовых вопросах. <a href="/train#cards" class="back-link">Открыть карточки →</a></p>
+  </section>
+  <section id="model-catalog" class="catalog" aria-labelledby="catalog-heading" hidden>
+    <div class="catalog-head"><h2 id="catalog-heading">Каталог моделей</h2>
+      <a class="back-link" href="#choose-model">К подбору ↑</a></div>
+    <p id="catalog-description" class="catalog-description muted"></p>
+    <p class="small muted token-help">Контекст — сколько токенов помещается во входном тексте и ответе вместе. При запуске можно выбрать меньшее окно, чтобы снизить расход памяти.</p>
+    <div id="catalog-grid" class="catalog-grid"></div>
   </section>
 </main></body>
 </html>
