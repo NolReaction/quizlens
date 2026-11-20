@@ -24,6 +24,16 @@
 <main>
   <div class="page-title"><h1>Журнал вопросов</h1><button class="mini-button" id="refresh" type="button">Обновить</button></div>
   <p role="status" id="notice" class="journal-notice" hidden></p>
+  <section class="panel accuracy-summary" id="accuracySummary" aria-labelledby="accuracyTitle" hidden>
+    <div>
+      <h2 id="accuracyTitle">Точность подсказок без документов</h2>
+      <p>По твоим проверкам в журнале</p>
+    </div>
+    <div class="accuracy-numbers" aria-live="polite">
+      <div><strong id="accuracyReviewed"></strong><small>верных подсказок</small></div>
+      <div><strong id="accuracyPending"></strong><small>без проверки</small></div>
+    </div>
+  </section>
   <section id="empty" class="panel empty-journal" hidden><h2>Здесь появятся вопросы из захвата</h2><p>Подключи окно квиза. После распознавания сможешь вернуться к вопросу, увидеть подсказку и исправить ответ.</p><a class="button primary" href="/">Открыть захват</a> <a class="mini-button" href="/check">Проверка устройства</a></section>
   <div id="workspace" class="journal-grid" hidden>
     <aside class="panel" aria-label="Список вопросов">

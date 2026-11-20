@@ -15,10 +15,16 @@ def _text(value):
     return unicodedata.normalize("NFC", value.strip())
 
 
-def _scope(question, options, lecture_ids, selection_mode, expected_count):
+def _card_texts(options, selection_mode):
     texts = [_text(x) for x in options]
-    if (not lecture_ids or not all(texts) or len(texts) != len(set(texts))
-            or selection_mode not in ("single", "multiple")):
+    if not all(texts) or len(texts) != len(set(texts)) or selection_mode not in ("single", "multiple"):
+        return None
+    return texts
+
+
+def _scope(question, options, lecture_ids, selection_mode, expected_count):
+    texts = _card_texts(options, selection_mode)
+    if not lecture_ids or not texts:
         return None
     key = [_text(question), sorted(texts), sorted(set(lecture_ids)), selection_mode,
            1 if selection_mode == "single" else expected_count]
@@ -72,6 +78,16 @@ def _selected(row, saved_text):
     return [i for i, value in enumerate(row["options"], 1) if _text(value) in answers]
 
 
+def _review(row, scope, selected):
+    response = row["response"]
+    proposed = response.get("choices") or ([response["choice"]] if response.get("choice") else [])
+    reviewable = bool(scope and proposed and response.get("kind") != "correction")
+    review = None
+    if reviewable and selected:
+        review = "correct" if sorted(proposed) == selected else "incorrect"
+    return {"canCorrect": scope is not None, "reviewable": reviewable, "review": review}
+
+
 class Journal:
     HISTORY_LIMIT = 200
     CARD_LIMIT = 1000
@@ -95,6 +111,10 @@ class Journal:
                response, channel, capture_ms, solve_ms, capture_trace=None):
         key = _scope(question, options, lecture_ids, selection_mode, expected_count)
         identifier = uuid.uuid4().hex
+        if not lecture_ids and response.get("kind") == "model_knowledge" and _card_texts(options, selection_mode):
+            # A review of a model-only hint belongs to this attempt. Document
+            # lookups only accept the hashed scope produced by _scope.
+            key = "model-review:" + identifier
         created = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         data = {k: response[k] for k in ("choice", "choices", "source", "kind", "excerpt", "evidence",
                                          "detail", "verification", "matchedQuestion")
@@ -110,15 +130,22 @@ class Journal:
                        bool(data.get("choices") or data.get("choice")), json.dumps(row, ensure_ascii=False)))
             db.execute("DELETE FROM captures WHERE seq <= (SELECT seq FROM captures "
                        "ORDER BY seq DESC LIMIT 1 OFFSET ?)", (self.HISTORY_LIMIT,))
+            db.execute("DELETE FROM corrections WHERE scope LIKE 'model-review:%' AND NOT EXISTS "
+                       "(SELECT 1 FROM captures WHERE captures.scope=corrections.scope)")
         return identifier
 
     def list(self):
         with closing(self._connect()) as db:
-            rows = db.execute("SELECT c.id,c.created,c.question,c.channel,c.answered,k.scope FROM captures c "
+            rows = db.execute("SELECT c.id,c.created,c.question,c.channel,c.answered,c.body,c.scope,k.answers FROM captures c "
                               "LEFT JOIN corrections k ON k.scope=c.scope ORDER BY c.seq DESC").fetchall()
-        return [{"id": ident, "createdAt": created, "question": question, "channel": channel,
-                 "answered": bool(answered), "corrected": scope is not None}
-                for ident, created, question, channel, answered, scope in rows]
+        entries = []
+        for ident, created, question, channel, answered, body, scope, answers in rows:
+            row = json.loads(body)
+            entries.append({"id": ident, "createdAt": created, "question": question, "channel": channel,
+                            "answered": bool(answered), "corrected": answers is not None,
+                            "kind": row["response"].get("kind", ""),
+                            **_review(row, scope, _selected(row, answers))})
+        return entries
 
     def _entry(self, db, identifier):
         if not isinstance(identifier, str) or len(identifier) != 32:
@@ -133,6 +160,7 @@ class Journal:
         selected = _selected(row, answers)
         row["correctionChoices"] = selected
         row["correctionTexts"] = [row["options"][i - 1] for i in selected]
+        row.update(_review(row, scope, selected))
         return row, scope
 
     def get(self, identifier):
@@ -153,7 +181,8 @@ class Journal:
             if count is not None and len(choices) != count:
                 raise ValueError(f"Для этого вопроса нужно отметить ровно {count}.")
             answers = sorted(_text(row["options"][i - 1]) for i in choices)
-            # A single current correction applies across all reordered captures of this card.
+            # A document-backed correction follows the card across captures.
+            # A model-only review has a scope unique to this entry.
             db.execute("INSERT OR REPLACE INTO corrections(scope,answers) VALUES(?,?)",
                        (scope, json.dumps(answers, ensure_ascii=False)))
             db.execute("DELETE FROM corrections WHERE revision <= (SELECT revision FROM corrections "
@@ -186,6 +215,8 @@ class Journal:
     def delete(self, identifier):
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            self._entry(db, identifier)
+            _, scope = self._entry(db, identifier)
             db.execute("DELETE FROM captures WHERE id=?", (identifier,))
+            if scope and scope.startswith("model-review:"):
+                db.execute("DELETE FROM corrections WHERE scope=?", (scope,))
         return {"deleted": True}

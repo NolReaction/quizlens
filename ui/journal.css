@@ -2,6 +2,12 @@
 .journal-notice{margin:0 0 12px;color:var(--warn)}
 .journal-grid{display:grid;grid-template-columns:minmax(245px,.8fr) minmax(0,1.85fr);align-items:start;gap:18px}
 .journal-grid small,.meta{color:var(--sub);font-size:.85rem}
+.accuracy-summary{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 28px;margin-bottom:18px}
+.accuracy-summary p,.accuracy-numbers small{color:var(--sub);font-size:.85rem}
+.accuracy-summary p{margin-top:3px}
+.accuracy-numbers{display:flex;flex-wrap:wrap;gap:12px 24px}
+.accuracy-numbers div{display:grid}
+.accuracy-numbers strong{font-size:1.3rem;font-variant-numeric:tabular-nums;color:var(--mint)}
 .entry-list{display:grid;gap:4px;max-height:68vh;overflow-y:auto}
 .entry-link{display:grid;gap:6px;padding:12px;border-radius:8px;overflow-wrap:anywhere}
 .entry-link:hover{background:#1c2932}
@@ -29,10 +35,14 @@ details.study-block[open] summary{margin-bottom:11px}
 .explain-form select{flex:1;min-width:min(100%,200px)}
 .explanation{margin-top:12px}
 .explanation:empty{display:none}
+.review-status{font-size:.9rem;font-weight:600;color:var(--mint)}
+.review-status.incorrect{color:var(--warn)}
+.review-action{margin-bottom:13px}
 .correction-list{display:grid;gap:6px;margin:10px 0 14px;border:0;padding:0}
 .correction-list label{display:flex;gap:8px;align-items:baseline;cursor:pointer}
 .correction-list input{accent-color:var(--mint)}
 .save-feedback{margin-top:8px;color:var(--mint)}
+.save-feedback:empty{display:none}
 .empty-journal{max-width:610px}
 .empty-journal p{margin:10px 0 16px;color:var(--muted)}
 .empty-journal a{display:inline-block}

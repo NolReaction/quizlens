@@ -4,6 +4,7 @@ const el = id => document.getElementById(id);
 const formatDate = new Intl.DateTimeFormat('ru-RU', {
   day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'
 });
+const reviewLabels = {correct:'Подсказка верна', incorrect:'Ошибка в подсказке'};
 let entries = [];
 let listVersion = 0;
 let detailVersion = 0;
@@ -33,6 +34,10 @@ function notice(message = '') {
 }
 
 function numberList(choices) { return choices.map(n => '№' + n).join(', '); }
+function responseChoices(result) {
+  if (result.choices?.length) return result.choices;
+  return result.choice ? [result.choice] : [];
+}
 function duration(ms) { return (ms / 1000).toLocaleString('ru-RU', {maximumFractionDigits:2}) + ' с'; }
 function validHash() {
   const value = location.hash.slice(1);
@@ -46,12 +51,22 @@ function renderList() {
     const link = node('a', '', 'entry-link');
     link.href = '#' + item.id;
     if (item.id === activeId) link.setAttribute('aria-current', 'true');
-    const state = item.corrected ? 'Моя карточка' : item.answered ? 'Есть ответ' : 'Без ответа';
+    const state = reviewLabels[item.review] || (item.reviewable ? 'Ждёт проверки' :
+      item.corrected ? 'Моя карточка' : item.answered ? 'Есть ответ' : 'Без ответа');
     link.append(node('small', formatDate.format(new Date(item.createdAt)) + ' · ' + state),
                 node('span', item.question));
     list.append(link);
   }
   el('entryCount').textContent = String(entries.length);
+}
+
+function renderAccuracy() {
+  const predictions = entries.filter(item => item.kind === 'model_knowledge' && item.reviewable);
+  const reviewed = predictions.filter(item => reviewLabels[item.review]);
+  const correct = reviewed.filter(item => item.review === 'correct').length;
+  el('accuracySummary').hidden = !predictions.length;
+  el('accuracyReviewed').textContent = correct + ' из ' + reviewed.length;
+  el('accuracyPending').textContent = String(predictions.length - reviewed.length);
 }
 
 async function refresh(pickEntry = true) {
@@ -60,6 +75,7 @@ async function refresh(pickEntry = true) {
     const data = await api('/api/journal');
     if (version !== listVersion) return;
     entries = data.entries;
+    renderAccuracy();
     el('empty').hidden = entries.length > 0;
     el('workspace').hidden = entries.length === 0;
     if (!entries.length) {
@@ -149,7 +165,7 @@ function renderTrace(row) {
 
 function addReplay(parent, row) {
   const result = row.response;
-  const choices = result.choices || (result.choice ? [result.choice] : []);
+  const choices = responseChoices(result);
   const recognized = block('Распознанные варианты');
   const list = node('ol', '', 'answer-list');
   row.options.forEach((text, i) => list.append(node('li', text, choices.includes(i + 1) ? 'marked' : '')));
@@ -169,7 +185,7 @@ function addReplay(parent, row) {
   } else {
     proofs.append(node('p', 'В этой записи нет выдержки.'));
   }
-  parent.append(proofs);
+  if (row.lectureIds.length || result.evidence?.length || result.excerpt || result.source) parent.append(proofs);
 
   const answer = block('Ответ при захвате');
   answer.append(node('p', choices.length ? numberList(choices) : result.kind === 'error'
@@ -177,9 +193,18 @@ function addReplay(parent, row) {
   if (choices.length) {
     const proof = answerProof(result, row.options);
     if (proof.note) answer.append(node('p', proof.note, proof.tentative ? 'problem-text' : ''));
+    else if (result.verification?.kind === 'element_symbol') {
+      answer.append(node('p', 'Таблица элементов · ' + result.verification.symbol));
+    } else if (result.kind === 'model_knowledge') {
+      answer.append(node('p', 'Подсказка локальной модели без документов', 'meta'));
+    }
   }
   if (result.detail) answer.append(node('p', result.detail, 'meta'));
-  if (row.correctionChoices.length) answer.append(node('p', 'Твоя карточка сейчас · ' + numberList(row.correctionChoices)));
+  if (reviewLabels[row.review]) answer.append(node('p', reviewLabels[row.review], 'review-status ' + row.review));
+  if (row.correctionChoices.length) {
+    const label = row.lectureIds.length ? 'Твоя карточка сейчас · ' : 'Отмеченный тобой ответ · ';
+    answer.append(node('p', label + numberList(row.correctionChoices)));
+  }
   answer.append(timingInfo(row));
   parent.append(answer);
 }
@@ -231,13 +256,19 @@ function notifyCorrection() {
 }
 
 function addCorrection(parent, row) {
-  const section = block(row.correctionChoices.length ? 'Изменить мою карточку' : 'Исправить и сохранить ответ', false);
+  if (row.canCorrect === false) return;
+  const sourced = row.lectureIds.length > 0;
+  const confirmed = row.correctionChoices.length > 0;
+  const section = block(sourced ? (confirmed ? 'Изменить мою карточку' : 'Исправить и сохранить ответ') :
+    (confirmed ? 'Изменить проверку' : 'Указать правильный ответ'), false);
+  section.id = 'correctAnswerDetails';
   const label = row.selectionMode === 'single' ? 'Отметь один правильный вариант.' :
-    row.expectedCount ? 'Сколько вариантов нужно отметить · ' + row.expectedCount : 'Отметь все правильные варианты.';
-  section.append(node('p', label + ' Карточка будет действовать для этого вопроса при том же выборе лекций.'));
+    row.expectedCount ? 'Отметь правильные варианты. Нужно выбрать ' + row.expectedCount + '.' : 'Отметь все правильные варианты.';
+  section.append(node('p', sourced ? label + ' Карточка будет действовать для этого вопроса при том же выборе лекций.' : label));
   const checklist = node('fieldset', '', 'correction-list');
   checklist.append(node('legend', 'Правильные варианты', 'sr-only'));
-  const selected = new Set(row.correctionChoices.length ? row.correctionChoices : row.response.choices || []);
+  const predicted = responseChoices(row.response);
+  const selected = new Set(confirmed ? row.correctionChoices : sourced ? predicted : []);
   const inputs = row.options.map((option, i) => {
     const wrapper = node('label');
     const input = node('input');
@@ -249,36 +280,41 @@ function addCorrection(parent, row) {
     checklist.append(wrapper);
     return input;
   });
-  const save = node('button', 'Сохранить карточку', 'button primary');
-  const forget = node('button', 'Убрать мою карточку', 'button text-button');
-  forget.hidden = !row.correctionChoices.length;
+  const save = node('button', sourced ? 'Сохранить карточку' : 'Сохранить проверку', 'button primary');
+  const forget = node('button', sourced ? 'Убрать мою карточку' : 'Убрать проверку', 'button text-button');
+  forget.hidden = !confirmed;
+  const confirmHint = node('button', 'Подсказка верна', 'mini-button review-action');
+  confirmHint.id = 'confirmHint';
   const status = node('p', '', 'save-feedback');
   status.setAttribute('role', 'status');
   const controls = node('div', '', 'explain-form');
   controls.append(save, forget);
-  async function persist(isForget) {
-    const choices = inputs.filter(input => input.checked).map(input => Number(input.value));
+  async function persist(choices, isForget = false) {
     if (!isForget && (!choices.length || (row.expectedCount && choices.length !== row.expectedCount))) {
       status.textContent = row.expectedCount ? 'Нужно отметить ровно ' + row.expectedCount + '.' : 'Отметь хотя бы один вариант.';
       return;
     }
-    if (isForget && !confirm('Убрать сохранённый ответ для этого вопроса? Записи журнала сохранятся.')) return;
-    save.disabled = forget.disabled = checklist.disabled = true;
+    if (isForget && !confirm(sourced ? 'Убрать сохранённый ответ для этого вопроса? Записи журнала сохранятся.' :
+      'Убрать проверку этой подсказки?')) return;
+    save.disabled = forget.disabled = confirmHint.disabled = checklist.disabled = true;
     try {
       const data = await api('/api/journal/' + (isForget ? 'forget' : 'correct'), isForget ? {id:row.id} : {id:row.id, choices});
-      notifyCorrection();
+      if (sourced) notifyCorrection();
       if (row.id === activeId) {
         renderEntry(data.entry);
-        notice(isForget ? 'Карточка убрана.' : 'Ответ сохранён в твою карточку.');
-        await refresh(false);
+        notice(sourced ? (isForget ? 'Карточка убрана.' : 'Ответ сохранён в твою карточку.') :
+          (isForget ? 'Проверка убрана.' : 'Проверка сохранена.'));
       }
+      await refresh(false);
     } catch (error) { status.textContent = error.message; }
-    finally { save.disabled = forget.disabled = checklist.disabled = false; }
+    finally { save.disabled = forget.disabled = confirmHint.disabled = checklist.disabled = false; }
   }
-  save.onclick = () => persist(false);
-  forget.onclick = () => persist(true);
-  section.append(checklist, controls, status);
-  parent.append(section);
+  save.onclick = () => persist(inputs.filter(input => input.checked).map(input => Number(input.value)));
+  forget.onclick = () => persist([], true);
+  confirmHint.onclick = () => persist(predicted);
+  section.append(checklist, controls);
+  if (row.reviewable && !confirmed && predicted.length) parent.append(confirmHint);
+  parent.append(section, status);
 }
 
 function renderEntry(row) {
@@ -287,11 +323,11 @@ function renderEntry(row) {
   parent.replaceChildren(node('p', formatDate.format(new Date(row.createdAt)) + ' · ' + channel, 'meta'),
     node('h2', row.question));
   addReplay(parent, row);
-  addExplanation(parent, row);
   addCorrection(parent, row);
+  if (row.lectureIds.length) addExplanation(parent, row);
   const remove = node('button', 'Удалить запись', 'mini-button');
   remove.onclick = async () => {
-    const saved = row.correctionChoices.length ? ' Твоя карточка сохранится.' : '';
+    const saved = row.lectureIds.length && row.correctionChoices.length ? ' Твоя карточка сохранится.' : '';
     if (!confirm('Удалить запись об этом захвате?' + saved)) return;
     remove.disabled = true;
     try {

@@ -353,6 +353,18 @@ def _questions(lines):
     return questions
 
 
+def prompt_bounds(parts, size):
+    """Locate a single question among the OCR words above an answer stack."""
+    width, height = size
+    spans = [dict(text=part['text'], x=part['x']/width, y=part['y']/height,
+                  w=part['w']/width, h=part['h']/height) for part in parts]
+    questions = _questions(_lines(spans, width/height))
+    if len(questions) != 1:
+        return None
+    question = questions[0]
+    return tuple(round(value*height) for value in (question.x, question.y, question.right, question.bottom))
+
+
 def assess_card_layout(parts, cards, *, size):
     """Read only the title and text belonging to a verified uniform card stack."""
     width, height = size

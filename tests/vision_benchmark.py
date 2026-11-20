@@ -39,6 +39,7 @@ class Case:
     uniform_cards: bool = False
     colored_font_size: int = 19
     colored_question_top: int = 158
+    colored_toolbar: bool = False
 
 
 # Ground truth is known before drawing. Never send this text to the runtime.
@@ -54,6 +55,9 @@ CASES = (
          ("Барометр", "Термометр", "Вольтметр", "Анемометр"), colored_cards=True),
     Case("colored-short-options", "Каков химический символ меди?",
          ("Cu", "C", "Cp", "Co"), colored_cards=True, colored_font_size=28, colored_question_top=193),
+    Case("colored-quiz-toolbar", "Как обозначается химический элемент гелий?",
+         ("BE", "He", "H", "Be"), colored_cards=True, colored_font_size=20,
+         colored_question_top=224, colored_toolbar=True),
     Case("uniform-cards", "Как называется прибор для измерения силы тока?",
          ("Термометр", "Амперметр", "Барометр", "Динамометр"), uniform_cards=True),
 )
@@ -77,11 +81,19 @@ def render_colored_cards(case, phase, font):
     center = left + 312
     draw.text((left, 28), "Игрок", font=small, fill=foreground)
     draw.text((left + 624, 28), "120 баллов", anchor="ra", font=small, fill="#a5b6d5")
-    draw.text((center, 91), "Вопрос 3 из 8", anchor="mm", font=small, fill="#a5b6d5")
-    draw.text((center, 127), "24 сек" if phase == 0 else "9 сек", anchor="mm", font=body, fill="#f1ad43")
+    offset = 67 if case.colored_toolbar else 0
+    draw.text((center, 91+offset), "Вопрос 3 из 8", anchor="mm", font=small, fill="#a5b6d5")
+    draw.text((center, 127+offset), "24 сек" if phase == 0 else "9 сек", anchor="mm", font=body, fill="#f1ad43")
     draw.multiline_text((center, case.colored_question_top), case.question, anchor="ma", align="center", spacing=4,
                         font=body, fill=foreground)
     boxes = [(left, 151, 624, 79)]
+    if case.colored_toolbar:
+        top += offset
+        draw.text((left, top-31), "За верный ответ: 180 очков", font=small, fill=foreground)
+        button_left = left + 390
+        draw.rounded_rectangle((button_left, top-45, left+620, top-10), 16, outline="#c4fb28", width=3)
+        draw.text((button_left+15, top-36), "Убрать неверный", font=small, fill="#c4fb28")
+        boxes[0] = (left, case.colored_question_top-2, 624, 30)
     colors = ("#cf2158", "#2755ba", "#f3a717", "#15745f")
     for i, (option, color) in enumerate(zip(case.options, colors)):
         y = top + i * 168
@@ -264,10 +276,10 @@ def check_regressions(rows):
         cards = [r for r in rows if r["mode"] == "auto" and r["case"] == case]
         if len(cards) != 2 or not all(r["questionExact"] and r["optionsInOrder"] for r in cards):
             raise ValueError(f"auto/{case}: question and all four choices must survive the layout change: {cards}")
-    short_case = next(case for case in CASES if case.name == "colored-short-options")
-    cards = [r for r in rows if r["mode"] == "auto" and r["case"] == short_case.name]
-    if len(cards) != 2 or not all(r["questionExact"] and tuple(r["texts"][1:]) == short_case.options for r in cards):
-        raise ValueError(f"auto/{short_case.name}: each short choice must retain its letters and case: {cards}")
+    for short_case in (case for case in CASES if case.name in ("colored-short-options", "colored-quiz-toolbar")):
+        cards = [r for r in rows if r["mode"] == "auto" and r["case"] == short_case.name]
+        if len(cards) != 2 or not all(r["questionExact"] and tuple(r["texts"][1:]) == short_case.options for r in cards):
+            raise ValueError(f"auto/{short_case.name}: each short choice must retain its letters and case: {cards}")
 
 
 def main():

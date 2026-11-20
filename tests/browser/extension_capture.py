@@ -207,6 +207,10 @@ def run(url, temp, screenshots, model_calls):
             prompt = json.loads(model_calls[0]["messages"][1]["content"])
             assert prompt["question"] == BUTTON_TASK, prompt
             assert [option["text"] for option in prompt["options"]] == BUTTON_OPTIONS, prompt
+            rows = capture.request.get(url + "/api/journal").json()["entries"]
+            recorded = [row for row in rows if row["question"] == BUTTON_TASK]
+            assert len(recorded) == 1 and recorded[0]["reviewable"] and recorded[0]["review"] is None, recorded
+            assert recorded[0]["kind"] == "model_knowledge", recorded
             transcript = capture.locator("#readText")
             for text in [BUTTON_TASK, *BUTTON_OPTIONS]:
                 expect(transcript).to_contain_text(text)
@@ -247,7 +251,7 @@ def run(url, temp, screenshots, model_calls):
             expect(capture.locator("#stopTabReader")).to_be_hidden()
             expect(capture.locator("#answer .answer-title")).not_to_have_text("Recall")
             check_dom_extraction(context.new_page())
-            print("Verified activeTab grants, automatic answers without documents, source precedence, capture refresh, and removal.")
+            print("Verified activeTab grants, local model recordings, source precedence, capture refresh, and removal.")
         finally:
             context.close()
 

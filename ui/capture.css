@@ -42,6 +42,13 @@
 .model-knowledge-option .hint {margin:4px 0 0 26px; line-height:1.4}
 .answer-body .answer-mode {color:#bcd0e6; font-size:.86rem; font-weight:600; margin-bottom:8px}
 .answer-body .answer-mode-action {align-self:flex-start; margin-top:12px}
+.answer-body[data-capture-recheck]::before {
+  content:"Перепроверяю кадр";
+  display:block;
+  margin-bottom:6px;
+  color:var(--warn);
+  font-size:.84rem;
+}
 .document-heading {justify-content:space-between; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); flex-wrap:wrap; gap:4px}
 #materialSummary {color:var(--muted); font-size:.85rem}
 #sessionView .lecture-list {display:block; max-height:15rem; margin-top:4px}

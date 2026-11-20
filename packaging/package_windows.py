@@ -12,7 +12,7 @@ sys.path.insert(0, str(SOURCE))
 from extension_package import EXTENSION_FILES
 
 SAMPLES = ("analytics-demo.txt", "analytics-demo.quiz.json", "ocr-warmup.png", "QuizLens-demo.ipynb")
-MODULES = ("app", "advisor", "components", "console_log", "model_bench", "auto_layout", "engine", "extension_package", "journal", "native_mode", "ocr",
+MODULES = ("app", "advisor", "components", "console_log", "model_bench", "auto_layout", "element_symbols", "engine", "extension_package", "journal", "native_mode", "ocr",
            "numeric_evidence", "ocr_terms", "ocr_review", "ocr_layout", "quiz_mode", "semantic", "training", "visual", "updater")
 
 

@@ -68,7 +68,7 @@ def copy_inputs(root, resources):
     repo = root / "packaging" / "REPOSITORY"
     if repo.is_file():
         shutil.copyfile(repo, destination / "REPOSITORY")
-    for name in ("app.py", "engine.py", "ocr.py", "ocr_terms.py", "ocr_review.py", "numeric_evidence.py", "ocr_layout.py", "auto_layout.py", "quiz_mode.py",
+    for name in ("app.py", "element_symbols.py", "engine.py", "ocr.py", "ocr_terms.py", "ocr_review.py", "numeric_evidence.py", "ocr_layout.py", "auto_layout.py", "quiz_mode.py",
                  "journal.py", "visual.py", "training.py", "advisor.py", "model_bench.py",
                  "ui/setup.html", "ui/setup.js", "ui/setup.css", "ui/visual-transfer.js",
                  "ui/index.html", "ui/app.js", "ui/journal.html", "ui/journal.js", "ui/journal.css",

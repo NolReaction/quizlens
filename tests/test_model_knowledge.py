@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 import app
 import engine
+from journal import Journal
 
 
 def completion(content):
@@ -24,12 +25,15 @@ class ModelKnowledgeTests(unittest.TestCase):
         self.server.meaning = Mock()
         self.server.journal = Mock()
         self.request = {"question": self.question, "options": self.options, "model": "qwen2.5-7b-instruct",
-                        "withoutDocuments": True, "lectureIds": [], "channel": "browser", "record": True}
+                        "withoutDocuments": True, "lectureIds": [], "channel": "browser", "record": False}
+
+    def answer(self, *choices):
+        return completion(json.dumps({"choices": [{"id": i, "text": self.options[i - 1]} for i in choices]}))
 
     def test_local_model_answers_captured_herb_question_without_citations(self):
         endpoint = "http://127.0.0.1:2345/v1"
         with patch.object(app, "ENDPOINT", endpoint), \
-                patch("engine._api", return_value=completion('{"choices":[3],"quote":"invented"}')) as model:
+                patch("engine._api", return_value=self.answer(3)) as model:
             result = self.server.solve(self.request)
         self.assertEqual(result, {
             "selectionMode": "single", "expectedCount": 1, "kind": "model_knowledge", "choice": 3, "choices": [3],
@@ -51,7 +55,7 @@ class ModelKnowledgeTests(unittest.TestCase):
 
     def test_multiple_values_are_sorted_and_checked_as_a_set(self):
         for count in (2, None):
-            with self.subTest(count=count), patch("engine._api", return_value=completion('{"choices":["4",1]}')):
+            with self.subTest(count=count), patch("engine._api", return_value=self.answer(4, 1)):
                 result = self.server.solve({**self.request, "selectionMode": "multiple", "expectedCount": count})
                 self.assertEqual((result["selectionMode"], result["expectedCount"], result["choice"], result["choices"]),
                                  ("multiple", count, None, [1, 4]))
@@ -59,7 +63,10 @@ class ModelKnowledgeTests(unittest.TestCase):
     def test_abstention_invalid_structure_choices_and_counts(self):
         for content in ('{"choices":[]}', 'bad result', '{"choices":[0]}', '{"choices":[5]}',
                         '{"choices":[true]}', '{"choices":[3.0]}', '{"choices":["3.0"]}', '{"choices":[3,"03"]}',
-                        '{"choices":[3,4]}', '{"choice":3}', '{"choices":3}'):
+                        '{"choices":[3,4]}', '{"choice":3}', '{"choices":3}',
+                        '{"choices":[{"id":3,"text":"Перец"}]}',
+                        '{"choices":[{"id":5,"text":"Тимьян"}]}',
+                        '{"choices":[{"id":3,"text":"Тимьян"},{"id":3,"text":"Тимьян"}]}'):
             with self.subTest(content=content), patch("engine._api", return_value=completion(content)) as model:
                 result = self.server.solve(self.request)
                 self.assertEqual((result["kind"], result["choice"], result["choices"], result["evidence"]),
@@ -67,9 +74,22 @@ class ModelKnowledgeTests(unittest.TestCase):
                 self.assertTrue(result["detail"])
                 self.assertEqual(result["tokenUsage"]["input"], 143)
                 model.assert_called_once()
-        with patch("engine._api", return_value=completion('{"choices":[3]}')):
+        with patch("engine._api", return_value=self.answer(3)):
             result = self.server.solve({**self.request, "selectionMode": "multiple", "expectedCount": 2})
         self.assertFalse(result["choices"])
+
+    def test_model_suggestions_are_reviewable_only_if_history_is_enabled(self):
+        with TemporaryDirectory() as folder, patch("engine._api", return_value=self.answer(3)):
+            self.server.journal = Journal(folder)
+            disabled = self.server.solve(self.request)
+            self.assertNotIn("journalId", disabled)
+            self.assertEqual(self.server.journal.list(), [])
+            enabled = self.server.solve({**self.request, "record": True, "lectureIds": None})
+            row = self.server.journal.get(enabled["journalId"])
+            self.assertEqual((row["lectureIds"], row["response"]["choices"]), ([], [3]))
+            self.assertTrue(row["reviewable"])
+            self.assertIsNone(row["review"])
+            self.assertEqual(self.server.journal.save_correction(row["id"], [3])["review"], "correct")
 
     def test_incompatible_opt_in_and_conflicting_recognition_never_call_model(self):
         with patch("engine._api") as model:

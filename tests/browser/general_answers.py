@@ -1,4 +1,4 @@
-"""Exercise automatic local-model answers and the opt-out with the real server."""
+"""Exercise automatic local-model answers and local accuracy review with the real server."""
 
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +12,8 @@ from manual_window import OPTIONS, QUESTION, uncheck_sources
 
 MODEL = "test/local-tutor"
 PROVENANCE = "Ответ модели · без источника"
+REVIEW_QUESTION = "Какой предмет показывает время?"
+REVIEW_OPTIONS = ("Линейка", "Термометр", "Часы", "Компас")
 
 
 @contextmanager
@@ -40,8 +42,12 @@ def local_model(choice=1):
             if self.path != "/v1/chat/completions":
                 self.send_error(404)
                 return
-            calls.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
-            self.send_json({"choices": [{"message": {"content": json.dumps({"choices": [choice]})}}],
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            calls.append(payload)
+            prompt = json.loads(payload["messages"][-1]["content"])
+            selection = prompt["options"][choice - 1]
+            answer = json.dumps({"choices": [selection]}, ensure_ascii=False)
+            self.send_json({"choices": [{"message": {"content": answer}}],
                             "usage": {"prompt_tokens": 123, "completion_tokens": 8}})
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
@@ -63,12 +69,19 @@ def check_general_answers(browser, url, calls, directory):
         if request.url.endswith("/api/solve"):
             requests.append(request.post_data_json)
 
-    def read_question():
+    def read_question(question=QUESTION, options=OPTIONS):
         # Exercise the usual capture-to-answer controller. Only supply the recognized frame.
         page.evaluate("""fields => {
             window.quizLensTabCapture.start();
             window.quizLensTabCapture.read(fields, {selectionMode:'single', expectedCount:1});
-        }""", [QUESTION, *OPTIONS])
+        }""", [question, *options])
+
+    def wait_for_answer(action):
+        with page.expect_response(lambda response: response.url.endswith("/api/solve"), timeout=15000) as observed:
+            action()
+        response = observed.value
+        assert response.ok, response.text()
+        return response.json()
 
     page.on("request", record_solve)
     try:
@@ -86,17 +99,14 @@ def check_general_answers(browser, url, calls, directory):
         action = answer.get_by_role("button", name="Ответить без документов", exact=True)
         assert not requests and not calls
 
-        with page.expect_response(lambda response: response.url.endswith("/api/solve"), timeout=15000) as observed:
-            read_question()
-        response = observed.value
-        assert response.ok, response.text()
+        result = wait_for_answer(read_question)
         expect(toggle).to_be_checked()
-        result = response.json()
         assert result["kind"] == "model_knowledge", result
         assert not any(result.get(key) for key in ("source", "excerpt", "quote", "evidence")), result
         assert len(requests) == 1 and requests[0]["withoutDocuments"] is True
         assert requests[0]["lectureIds"] == [] and requests[0]["model"] == MODEL
-        assert requests[0]["record"] is False
+        assert requests[0]["record"] is True
+        first_id = result["journalId"]
         assert len(calls) == 1 and calls[0]["model"] == MODEL
         system, user = calls[0]["messages"]
         assert "по своим знаниям" in system["content"]
@@ -106,6 +116,7 @@ def check_general_answers(browser, url, calls, directory):
         expect(title).to_have_text(OPTIONS[0])
         expect(answer.get_by_text(PROVENANCE, exact=True)).to_be_visible()
         expect(answer.locator(".answer-source, .answer-excerpt")).to_have_count(0)
+        expect(answer.locator(f'a[href="/journal#{first_id}"]')).to_be_visible()
         if directory:
             page.locator("#windowStep").evaluate("element => element.scrollIntoView({block:'start'})")
             page.screenshot(path=directory / "general-model.png", animations="disabled")
@@ -130,6 +141,44 @@ def check_general_answers(browser, url, calls, directory):
         expect(title).to_have_text("Текст распознан")
         expect(action).to_be_visible()
         assert len(requests) == 1 and len(calls) == 1
-        print("Verified automatic model answers, no source claims or journal input, and opt-out after refresh.")
+
+        read_question(REVIEW_QUESTION, REVIEW_OPTIONS)
+        second = wait_for_answer(action.click)
+        second_id = second["journalId"]
+        assert second["choices"] == [1]
+        expect(title).to_have_text(REVIEW_OPTIONS[0])
+        expect(toggle).to_be_checked()
+
+        journal = context.new_page()
+        journal.goto(url + "/journal#" + first_id)
+        pending = journal.locator("#accuracyPending")
+        reviewed = journal.locator("#accuracyReviewed")
+        detail = journal.locator("#entry")
+        expect(detail.get_by_role("heading", level=2)).to_have_text(QUESTION)
+        expect(pending).to_have_text("2")
+        journal.locator("#confirmHint").click()
+        expect(reviewed).to_have_text("1 из 1")
+        expect(pending).to_have_text("1")
+
+        journal.locator(f'#entryList a[href="#{second_id}"]').click()
+        expect(detail.get_by_role("heading", level=2)).to_have_text(REVIEW_QUESTION)
+        correction = detail.locator("#correctAnswerDetails")
+        correction.locator("summary").click()
+        correction.get_by_label("3. Часы", exact=True).check()
+        correction.get_by_role("button", name="Сохранить проверку", exact=True).click()
+        expect(reviewed).to_have_text("1 из 2")
+        expect(pending).to_have_text("0")
+
+        page.locator("#captureOptions").click()
+        page.locator("#record").uncheck()
+        private_result = wait_for_answer(lambda: read_question("Что помогает ориентироваться на местности?", OPTIONS))
+        assert not private_result.get("journalId"), private_result
+        assert requests[-1]["record"] is False
+        assert len(requests) == len(calls) == 3
+        journal.reload()
+        expect(reviewed).to_have_text("1 из 2")
+        expect(pending).to_have_text("0")
+        expect(journal.locator("#entryCount")).to_have_text("2")
+        print("Verified automatic model answers, explicit accuracy reviews, and both capture preferences.")
     finally:
         context.close()

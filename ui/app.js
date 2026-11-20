@@ -8,6 +8,7 @@ const sameAspect = (current, saved) => Number.isFinite(current) && Number.isFini
   current > 0 && saved > 0 && Math.abs(current/saved-1) <= .04;
 const storageKey = 'quizlens.settings.v1';
 const answerCache = new Map();
+const captureChangeGraceMs = 1400;
 const knowledgeLabel = 'Ответ модели · без источника';
 let checkingModels = false;
 let modelPreferenceChanged = false;
@@ -67,7 +68,7 @@ function drawWarningImage(figure, warning) {
 function drawAnswer(container, info) {
   container.replaceChildren();
   container.className = 'answer-body'+(info.unclear ? ' unclear':'');
-  if (info.knowledge) addText(container, 'answer-mode', knowledgeLabel);
+  if (info.knowledge) addText(container, 'answer-mode', info.knowledgeLabel || knowledgeLabel);
   addText(container, 'answer-tag', info.tag);
   addText(container, 'answer-title', info.title);
   addText(container, 'answer-text', info.subtitle);
@@ -116,13 +117,13 @@ function drawAnswer(container, info) {
     addText(container, 'answer-source', info.source);
     addText(container, 'answer-excerpt', info.excerpt);
   }
-  if (info.journalId && !info.knowledge) {
+  if (info.journalId) {
     const link = container.ownerDocument.createElement('a');
     link.href = '/journal#' + encodeURIComponent(info.journalId);
     link.target = '_blank';
     link.rel = 'noopener';
     link.className = 'review-link';
-    link.textContent = 'Разобрать ответ ↗';
+    link.textContent = info.knowledge ? 'Проверить подсказку ↗' : 'Разобрать ответ ↗';
     container.append(link);
   }
   if (info.tokenUsage) addText(container, 'hint', formatQuizTokenUsage(info.tokenUsage));
@@ -412,6 +413,7 @@ el('compact').addEventListener('click', async () => {
     doc.head.append(link, captureStyle); doc.body.className='pip';
     const area=doc.createElement('div'); area.id='pipAnswer'; doc.body.append(area);
     if(state.response) drawAnswer(area,state.response);
+    area.toggleAttribute('data-capture-recheck', el('answer').hasAttribute('data-capture-recheck'));
     state.pip.addEventListener('pagehide',()=>{state.pip=null;},{once:true});
     notify();
   } catch(error) { notify('Окно с ответом не открылось. '+error.message); }
@@ -703,6 +705,7 @@ function clearWorkflow() {
   state.ocrJob?.controller.abort();state.ocrJob=null;
   state.solveJob?.controller.abort();state.solveJob=null;
   state.currentKey=null;state.candidateKey=null;state.pendingSince=null;state.displayedKey=null;
+  markCaptureRechecking(false);
   state.captureTrace=[];state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedFrame=null;state.captureIssue=null;
   state.retryOcrAt=0;state.retrySolveAt=0;state.signature=null;state.dirtyFrame=false;state.lastRead=-Infinity;
 }
@@ -799,7 +802,7 @@ function answerForResult(result, options, selection) {
   return {...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Сверь ответ с найденным фрагментом документа.',source:result.source,excerpt:result.excerpt,unclear:true};
 }
 function answerForKnowledge(result, options, selection) {
-  const mode={knowledge:true,tokenUsage:result.tokenUsage};
+  const mode={knowledge:true,tokenUsage:result.tokenUsage,journalId:result.journalId,journalWarning:result.journalWarning};
   const choices=result.choices;
   if (result.kind!=='model_knowledge' || !Array.isArray(choices)) {
     return {...mode,title:'Ответ недоступен',subtitle:'Сверь текст и формат вопроса.',unclear:true};
@@ -808,7 +811,13 @@ function answerForKnowledge(result, options, selection) {
       new Set(choices).size!==choices.length || (selection.expectedCount && choices.length!==selection.expectedCount) ||
       choices.some(index=>!Number.isInteger(index) || index<1 || index>options.length) ||
       (selection.selectionMode==='single' && (choices.length!==1 || choices[0]!==result.choice))) {
-    return {...mode,title:'Модель не выбрала ответ',subtitle:'Проверь формулировку или добавь документ по теме.',unclear:true};
+    return {...mode,title:'Вариант не подтверждён',subtitle:result.detail || 'Проверь формулировку и варианты на экране.',unclear:true};
+  }
+  if (result.verification?.kind === 'calculation') {
+    mode.knowledgeLabel = 'Расчёт по условию';
+    mode.note = result.verification.equation;
+  } else if (result.verification?.kind === 'element_symbol') {
+    mode.knowledgeLabel = 'Сверено по таблице элементов';
   }
   if (selection.selectionMode==='single') {
     return {...mode,tag:'Вариант '+result.choice,title:options[result.choice-1]};
@@ -850,19 +859,29 @@ async function solve(texts,key,session,selection) {
   const options=texts.slice(1);
   const cacheKey=withoutDocuments ? 'knowledge:'+key : key;
   const formatResult=withoutDocuments ? answerForKnowledge : answerForResult;
+  if(state.solveJob?.key===key) {
+    // A response that arrived during a brief OCR disagreement belongs to this
+    // question if the next read confirms it. Even an uncached response can resume.
+    if(state.solveJob.view) {
+      const {view}=state.solveJob;
+      state.solveJob=null;
+      displayResult(view);
+    }
+    return;
+  }
   const cached=answerCache.get(cacheKey);
   if(cached) {
     displayResult(formatResult({...cached, tokenUsage:{source:'cache'}},options,selection));
     return;
   }
-  if(state.solveJob?.key===key || performance.now()<state.retrySolveAt) return;
+  if(performance.now()<state.retrySolveAt) return;
   state.solveJob?.controller.abort();
   const job={key,controller:new AbortController()};state.solveJob=job;
-  answer(withoutDocuments ? {title:'Спрашиваю локальную модель…',knowledge:true} : {title:'Ищу в документах…'});
-  status(withoutDocuments?'Модель отвечает':'Ищу ответ','active');
+  answer({title:withoutDocuments?'Сверяю варианты…':'Ищу в документах…'});
+  status(withoutDocuments?'Проверяю ответ':'Ищу ответ','active');
   try {
     const params={question:texts[0],options,...selection,model,lectureIds:[...state.selected],
-      record:!withoutDocuments && el('record').checked,channel:'browser'};
+      record:el('record').checked,channel:'browser'};
     if (withoutDocuments) params.withoutDocuments=true;
     const requestAt=performance.now();
     if (state.firstSeenAt!==null) params.captureMs=Math.round(Math.max(0,requestAt-state.firstSeenAt));
@@ -871,7 +890,10 @@ async function solve(texts,key,session,selection) {
     if(state.session!==session || job.controller.signal.aborted) return;
     const view=formatResult(result,options,selection);
     if(!view.unclear && !view.tentative) cacheResult(cacheKey,result);
-    if(state.currentKey===key && state.candidateKey===null) displayResult(view);
+    if(state.currentKey===key) {
+      if(state.candidateKey===null) displayResult(view);
+      else job.view=view;
+    }
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;
     if(state.currentKey===key && state.candidateKey===null) {
@@ -879,7 +901,7 @@ async function solve(texts,key,session,selection) {
       status(withoutDocuments?'Ошибка модели':'Ошибка поиска','problem');
       state.retrySolveAt=performance.now()+3000;
     }
-  } finally { if(state.solveJob===job) state.solveJob=null; }
+  } finally { if(state.solveJob===job && !job.view) state.solveJob=null; }
 }
 function noteCapture(texts,status,timestamp) {
   if (state.tabReading || !el('record').checked) return;
@@ -961,6 +983,7 @@ function reviewReading(texts, warnings, frame, review=null) {
   // Do not publish an answer based on (or cached before) the unresolved pixels.
   state.solveJob?.controller.abort();state.solveJob=null;
   state.currentKey=null;state.displayedKey=null;state.confirmedFrame=null;state.firstSeenAt=null;
+  markCaptureRechecking(false);
   window.QuizChart?.show(null);
   const editable = review?.repeated && validFields(texts.length) && texts.every(Boolean);
   const key=JSON.stringify([texts,warnings.map(w=>[w.field,w.readings]), Boolean(editable), review?.identity]);
@@ -1007,6 +1030,13 @@ function answerFrame(texts,key,session,selection) {
   }
 }
 
+function markCaptureRechecking(active) {
+  el('answer').toggleAttribute('data-capture-recheck',active);
+  if (state.pip && !state.pip.closed) {
+    state.pip.document.getElementById('pipAnswer')?.toggleAttribute('data-capture-recheck',active);
+  }
+}
+
 function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.now(),frame=null) {
   if (session!==state.session) return;
   if(!Array.isArray(raw) || (raw.length!==0 && !validFields(raw.length))) throw new Error('OCR вернул некорректное число областей.');
@@ -1045,7 +1075,8 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
   const compact=compared.map((value,i)=>i ? value.replace(/^([+−-]?\d+(?:[,.]\d+)?)\s+([%‰])$/, '$1$2') : value);
   const fields=new Set(compact.slice(1)).size===texts.length-1 ? compact : compared;
   const complete=validFields(texts.length) && texts.every(Boolean) && fields.every(Boolean) && new Set(fields.slice(1)).size===texts.length-1;
-  const change=complete && !state.tabReading ? criticalDifference(state.previousReading,texts) : null;
+  const change=complete && !state.tabReading
+    ? criticalDifference(state.confirmedFrame?.texts ?? state.previousReading,texts) : null;
   state.previousReading=complete ? texts : null;
   // Keep option order, negation, case and mathematical symbols in the identity.
   if (complete || texts.some(Boolean) || state.captureIssue || state.currentKey) {
@@ -1058,20 +1089,29 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
     reviewReading(texts,[change],frame);
     return;
   }
-  if(!state.tabReading && !approved && key!==state.currentKey && key!==state.candidateKey) {
-    window.QuizChart?.show(null);
+  if(!state.tabReading && !approved && key!==state.currentKey) {
+    const newCandidate=key!==state.candidateKey;
     if(state.pendingSince===null) state.pendingSince=performance.now();
-    state.candidateKey=key;state.candidateSeenAt=observedAt;
-    if((complete || state.currentKey===null) && !state.warningKey) {
-      state.displayedKey=null;
-      showTexts(texts);
-      answer({title:'Проверяю текст…'});status('Распознаю','active');
+    const briefMiss=!complete && state.confirmedFrame && performance.now()-state.pendingSince<captureChangeGraceMs;
+    if(newCandidate || briefMiss) {
+      if(newCandidate) {
+        state.candidateKey=key;state.candidateSeenAt=observedAt;
+        const hasAnswer=state.currentKey && state.displayedKey===state.currentKey;
+        if(hasAnswer) {
+          markCaptureRechecking(true);
+        } else if((complete || state.currentKey===null) && !state.warningKey) {
+          window.QuizChart?.show(null);
+          showTexts(texts);
+          answer({title:'Проверяю текст…'});status('Распознаю','active');
+        }
+      }
+      return;
     }
-    return;
   }
   state.warningKey=null;
   const seenAt=state.candidateSeenAt ?? observedAt;
   state.candidateKey=null;state.pendingSince=null;state.candidateSeenAt=null;
+  markCaptureRechecking(false);
   if(key!==state.currentKey) {
     // Two consecutive OCR reads now agree on the replacement (or on an incomplete frame).
     state.solveJob?.controller.abort();state.solveJob=null;
@@ -1163,7 +1203,16 @@ async function recognize(session) {
     window.QuizChart?.remember(result.texts,chartFrame,session);
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;
+    const now=performance.now();
+    if(state.currentKey && now-(state.pendingSince ?? now)<captureChangeGraceMs) {
+      state.pendingSince ??= now;
+      state.candidateKey='';state.candidateSeenAt=null;
+      if(state.displayedKey===state.currentKey) markCaptureRechecking(true);
+      state.retryOcrAt=now+300;
+      return;
+    }
     state.currentKey=null;state.candidateKey=null;state.pendingSince=null;state.displayedKey=null;
+    markCaptureRechecking(false);
     state.candidateSeenAt=null;state.firstSeenAt=null;state.confirmedFrame=null;
     state.warningKey=null;state.previousReading=null;state.readingReview=null;window.QuizChart?.show(null);
     state.solveJob?.controller.abort();state.solveJob=null;
@@ -1183,9 +1232,11 @@ function tick() {
       state.dirtyFrame=true;
     }
     // During a prolonged transition an old answer must not remain on screen.
-    if(state.currentKey && state.pendingSince!==null && now-state.pendingSince>=1400) {
+    if(state.currentKey && state.pendingSince!==null && now-state.pendingSince>=captureChangeGraceMs) {
       state.currentKey=null;state.displayedKey=null;state.confirmedFrame=null;
+      markCaptureRechecking(false);
       state.solveJob?.controller.abort();state.solveJob=null;
+      window.QuizChart?.show(null);
       showTexts(null);answer({title:'Проверяю новый кадр…'});status('Распознаю','active');
     }
     // Pixels only schedule a read. Motion cannot invalidate a captured OCR result,

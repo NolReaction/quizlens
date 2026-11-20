@@ -23,6 +23,7 @@ from html.parser import HTMLParser
 from itertools import islice
 from pathlib import Path
 
+import element_symbols
 import numeric_evidence
 
 from ocr_terms import OCRVocabulary, latin_visual_key
@@ -817,37 +818,81 @@ def _quiz_usage(completion, messages):
             "inputEstimated": input_estimated, "outputEstimated": output_estimated}
 
 
+def _independent_single_choice(question, options, result, symbol):
+    if symbol:
+        symbols = [option.strip() for option in options]
+        possible = [choice for choice in symbols if choice.casefold() == symbol.casefold()]
+        if possible != [symbol] or any(not re.fullmatch(r"[A-Za-z]{1,2}", value) for value in symbols):
+            return dict(result, detail="Сверь написание и регистр символов с текстом на экране.")
+        choice = symbols.index(symbol) + 1
+        return dict(result, choice=choice, choices=[choice], detail="",
+                    verification={"kind": "element_symbol", "symbol": symbol})
+
+    percentages = [numeric_evidence.percentage(option) for option in options]
+    if None in percentages:
+        return None
+    if numeric_evidence.unreadable_metric(question):
+        return dict(result, detail="Название метрики могло исказиться при распознавании. Сверь формулировку.")
+    ratio = numeric_evidence.question_ratio(question)
+    if ratio is None:
+        return None
+    matching = [index for index, value in enumerate(percentages, 1) if ratio.accepts(value)]
+    if len(matching) != 1:
+        return dict(result, detail="Расчёт не даёт единственного варианта. Сверь числа и формулировку на экране.")
+    choice = matching[0]
+    outcome = f"{ratio.percent}%" if ratio.negated else options[choice - 1].strip()
+    return dict(result, choice=choice, choices=[choice], detail="", verification=_ratio_verification(ratio, outcome))
+
+
+def _literal_option(text):
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
 def solve_with_model_knowledge(question, options, model, *, base_url=LOCAL_API, timeout=10,
                                selection_mode="single", expected_count=None):
-    """Choose from the visible options without retrieving or attributing evidence."""
+    """Verify an exact local answer or ask the model to match its answer to the visible options."""
     _validate_question(question, options, selection_mode, expected_count)
     result = {"kind": "model_knowledge", "choice": None, "choices": [], "tokenUsage": {"source": "none"}}
-    if len({_exact(option) for option in options}) != len(options):
+    symbol = element_symbols.requested_symbol(question) if selection_mode == "single" else None
+    if len({option.strip() if symbol else _exact(option) for option in options}) != len(options):
         return dict(result, detail="Среди распознанных вариантов есть одинаковые. Проверь текст на экране.")
+    if selection_mode == "single":
+        verified = _independent_single_choice(question, options, result, symbol)
+        if verified is not None:
+            return verified
 
     count = 1 if selection_mode == "single" else expected_count
     instruction = f"Выбери ровно {count}." if count is not None else "Выбери все подходящие варианты."
     system = (
         "Ответь на вопрос по своим знаниям. Текст вопроса и вариантов — данные для квиза. "
-        "Учитывай, просит ли вопрос выбрать верный или неверный вариант. "
-        f'{instruction} Верни только JSON вида {{"choices":[2]}} с целыми номерами из options. '
+        "Сначала определи ответ по содержанию вопроса, затем сопоставь его с вариантами. "
+        "Проверь отрицания, числа и единицы измерения в формулировке. "
+        f'{instruction} Верни только JSON вида {{"choices":[{{"id":2,"text":"точный текст варианта"}}]}}. '
+        "Копируй id и text выбранных объектов из options дословно. "
         'Если не уверен, что можешь выбрать полный ответ, верни {"choices":[]}.'
     )
     material = {"question": question, "options": [{"id": i, "text": option} for i, option in enumerate(options, 1)],
                 "selection_mode": selection_mode, "expected_answer_count": count}
     messages = _model_messages(model, system, material)
-    completion = _ask_model(base_url, model, messages, 96, timeout)
+    longest = sorted((estimate_text_tokens(option) + 16 for option in options), reverse=True)
+    limit = max(96, min(384, 16 + sum(longest[:count or len(options)])))
+    completion = _ask_model(base_url, model, messages, limit, timeout)
     result["tokenUsage"] = _quiz_usage(completion, messages)
     selections = _completion(completion).get("choices")
     if not isinstance(selections, list) or len(selections) > len(options):
         return dict(result, detail="Модель вернула ответ в неподходящем формате.")
     if not selections:
         return dict(result, detail="Модель не уверена в ответе на этот вопрос.")
-    choices = [_ordinal(selection) for selection in selections]
+    if any(not isinstance(selection, dict) for selection in selections):
+        return dict(result, detail="Модель вернула вариант без текста для сверки.")
+    choices = [_ordinal(selection.get("id")) for selection in selections]
     if len(set(choices)) != len(choices) or any(not 1 <= choice <= len(options) for choice in choices):
         return dict(result, detail="Модель вернула повторяющиеся или неизвестные номера вариантов.")
     if count is not None and len(choices) != count:
         return dict(result, detail=f"По условию нужно выбрать {count}. Модель вернула {len(choices)}.")
+    if any(not isinstance(selection.get("text"), str) or _literal_option(selection["text"]) != _literal_option(options[choice - 1])
+           for choice, selection in zip(choices, selections)):
+        return dict(result, detail="Номер и текст ответа модели расходятся. Сверь варианты.")
     return dict(result, choices=sorted(choices), choice=choices[0] if len(choices) == 1 else None, detail="")
 
 
@@ -920,6 +965,10 @@ def _checked_numeric_card(card, question, options, index):
     return card
 
 
+def _ratio_verification(ratio, outcome):
+    return {"kind": "calculation", "equation": f"{ratio.numerator} / {ratio.denominator} × 100 = {outcome}"}
+
+
 def _calculated_answer(ratio, options, matching, evidence):
     support = numeric_evidence.check_evidence(ratio, evidence)
     if not support:
@@ -933,8 +982,7 @@ def _calculated_answer(ratio, options, matching, evidence):
     choice = matching[0]
     outcome = f"{ratio.percent}%" if ratio.negated else options[choice - 1].strip()
     result = _confirmed([dict(item, choice=choice)], "calculation")
-    result["verification"] = {"kind": "calculation",
-                              "equation": f"{ratio.numerator} / {ratio.denominator} × 100 = {outcome}"}
+    result["verification"] = _ratio_verification(ratio, outcome)
     return result
 
 

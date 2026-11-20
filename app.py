@@ -272,46 +272,48 @@ class QuizServer(ThreadingHTTPServer):
         question = q.strip()
         options = quiz_mode.clean_options([o.strip() for o in options])
         mode, count = hint["selectionMode"], hint["expectedCount"]
-        if without_documents:
-            result = engine.solve_with_model_knowledge(question, options, model.strip(), base_url=ENDPOINT,
-                                                       selection_mode=mode, expected_count=count)
-            return {**hint, **result, "evidence": [], "source": "", "excerpt": ""}
-        index = self.corpus.index(ids)
         record = data.get("record") is True and channel in ("browser", "native")
         capture_ms = data.get("captureMs")
         if type(capture_ms) not in (int, float) or not 0 <= capture_ms <= 600000:
             capture_ms = None
-        result = None
         journal_warning = ""
-        if channel not in ("training", "check"):
-            try:
-                result = self.journal.lookup(question, options, ids, mode, count)
-            except (sqlite3.Error, OSError):
-                journal_warning = "Журнал временно недоступен."
-        if result is None:
-            try:
-                index = self.meaning.wrap(index, self.embedding_model)
-                # Training distinguishes late correct answers from timeouts.
-                request_timeout = 28 if channel == "training" else 10
-                result = engine.solve(question, options, index, model, base_url=ENDPOINT, timeout=request_timeout,
-                                      selection_mode=mode, expected_count=count)
-            except RuntimeError as error:
-                if not record:
-                    raise
-                result = {"choices": [], "choice": None, "evidence": [], "kind": "error", "detail": str(error),
-                          "tokenUsage": {"source": "unknown"}}
-        choices = result["choices"]
-        evidence = [{"choice": item["choice"], "source": item["source"], "excerpt": item["quote"]}
-                    for item in result["evidence"]]
-        response = {**hint, "choice": result["choice"], "choices": choices, "evidence": evidence, "kind": result["kind"],
-                "source": result.get("source", ""), "excerpt": result.get("quote", ""),
-                "tokenUsage": result.get("tokenUsage", {"source": "none"}),
-                "detail": result.get("detail") or ("" if choices else
-                ("Подтверждённого ответа в карточках нет. Для разбора лекции выбери модель."
-                 if not model else "В найденном тексте модель не подтвердила ни один вариант."))}
-        for field in ("verification", "matchedQuestion"):
-            if field in result:
-                response[field] = result[field]
+        if without_documents:
+            ids = []
+            result = engine.solve_with_model_knowledge(question, options, model.strip(), base_url=ENDPOINT,
+                                                       selection_mode=mode, expected_count=count)
+            response = {**hint, **result, "evidence": [], "source": "", "excerpt": ""}
+        else:
+            index = self.corpus.index(ids)
+            result = None
+            if channel not in ("training", "check"):
+                try:
+                    result = self.journal.lookup(question, options, ids, mode, count)
+                except (sqlite3.Error, OSError):
+                    journal_warning = "Журнал временно недоступен."
+            if result is None:
+                try:
+                    index = self.meaning.wrap(index, self.embedding_model)
+                    # Training distinguishes late correct answers from timeouts.
+                    request_timeout = 28 if channel == "training" else 10
+                    result = engine.solve(question, options, index, model, base_url=ENDPOINT, timeout=request_timeout,
+                                          selection_mode=mode, expected_count=count)
+                except RuntimeError as error:
+                    if not record:
+                        raise
+                    result = {"choices": [], "choice": None, "evidence": [], "kind": "error", "detail": str(error),
+                              "tokenUsage": {"source": "unknown"}}
+            choices = result["choices"]
+            evidence = [{"choice": item["choice"], "source": item["source"], "excerpt": item["quote"]}
+                        for item in result["evidence"]]
+            response = {**hint, "choice": result["choice"], "choices": choices, "evidence": evidence, "kind": result["kind"],
+                    "source": result.get("source", ""), "excerpt": result.get("quote", ""),
+                    "tokenUsage": result.get("tokenUsage", {"source": "none"}),
+                    "detail": result.get("detail") or ("" if choices else
+                    ("Подтверждённого ответа в карточках нет. Для разбора лекции выбери модель."
+                     if not model else "В найденном тексте модель не подтвердила ни один вариант."))}
+            for field in ("verification", "matchedQuestion"):
+                if field in result:
+                    response[field] = result[field]
         if record:
             elapsed = round(1000 * (time.monotonic() - started))
             try:

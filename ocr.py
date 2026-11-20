@@ -22,7 +22,7 @@ import threading
 import time
 from statistics import median
 
-from auto_layout import assess_card_layout, assess_layout, colored_card_stack, uniform_card_stack
+from auto_layout import assess_card_layout, assess_layout, colored_card_stack, prompt_bounds, uniform_card_stack
 from ocr_layout import ocr_texts
 from ocr_review import field_warnings
 from quiz_mode import selection_hint
@@ -596,6 +596,24 @@ def _reliable_card_group(group):
     return bool(group) and median(part['confidence'] for part in group) >= 65
 
 
+def _chemical_symbol_prompt(question):
+    return all(re.search(pattern, question, re.I)
+               for pattern in (r"\b(?:химическ\w*|chemical)\b", r"\b(?:символ\w*|обознач\w*|symbols?)\b"))
+
+
+def _verified_symbol_groups(original, reread):
+    # Language can distinguish homographs, but may not replace a previously
+    # reliable number, sign or formula.
+    aliases = str.maketrans("АВЕКМНОРСТУХаеорсхуи", "ABEKMHOPCTYXaeopcxyu")
+    if not all(map(_reliable_card_group, reread)):
+        return False
+    values = [" ".join(part['text'] for part in group) for group in reread]
+    return all(re.fullmatch(r"[A-Za-z]{1,3}", text) for text in values) and all(
+        not _reliable_card_group(group) or " ".join(part['text'] for part in group).translate(aliases) == text
+        for group, text in zip(original, values)
+    )
+
+
 def _short_card_reading(pages, groups, question, binary, languages):
     """Give isolated short labels line context while retaining their own boxes."""
     from PIL import Image
@@ -604,10 +622,7 @@ def _short_card_reading(pages, groups, question, binary, languages):
     # limited to short labels so sentences retain their ordinary reading path.
     if not all(20 < page.height <= 112 and 0 < page.width - 20 <= 3.2 * (page.height - 20) for page in pages):
         return groups
-    chemical_symbol = "eng" in languages and all(
-        re.search(pattern, question, re.I)
-        for pattern in (r"\b(?:химическ\w*|chemical)\b", r"\b(?:символ\w*|обознач\w*|symbols?)\b")
-    )
+    chemical_symbol = "eng" in languages and _chemical_symbol_prompt(question)
     if not chemical_symbol and all(map(_reliable_card_group, groups)):
         return groups
     # Use the prompt only to choose script priority. Some short Latin and
@@ -634,18 +649,19 @@ def _short_card_reading(pages, groups, question, binary, languages):
         if match is None:
             return groups  # A merged reading can span more than one option.
         choices[match].append(dict(part, x=part["x"] - lefts[match], y=part["y"] - padding))
+    if chemical_symbol:
+        if _verified_symbol_groups(groups, choices):
+            return choices
+        # A wider baseline can still fuse or skip close short labels.
+        # Read the independently cropped tiles in English in one batch.
+        try:
+            isolated = _read_tsv(pages, binary, "eng", "7", timeout=2)
+        except RuntimeError:
+            isolated = []
+        if len(isolated) == len(pages) and _verified_symbol_groups(groups, isolated):
+            return isolated
     if not all(map(_reliable_card_group, choices)):
         return groups
-    if chemical_symbol:
-        # A language preference may distinguish visually similar letters,
-        # but must not change a previously reliable number, sign or formula.
-        aliases = str.maketrans("АВЕКМНОРСТУХаеорсхуи", "ABEKMHOPCTYXaeopcxyu")
-        read = [" ".join(part["text"] for part in group) for group in choices]
-        if all(re.fullmatch(r"[A-Za-z]{1,3}", text) for text in read) and all(
-            not _reliable_card_group(group) or " ".join(part["text"] for part in group).translate(aliases) == text
-            for group, text in zip(groups, read)
-        ):
-            return choices
     return [original if _reliable_card_group(original) else retry for original, retry in zip(groups, choices)]
 
 
@@ -660,12 +676,29 @@ def _read_colored_cards(image, cards, binary, languages):
         groups = _read_tsv(pages, binary, languages, "11", timeout=5)
     except RuntimeError:
         return None
+    header = re.compile(r"^(?:игрок|раунд\s*\d|вопрос\s*\d|озвучка|player|round\s*\d|question\s*\d)\b", re.I)
+    toolbar = re.compile(r"\b(?:за\s+(?:верн\w*|правильн\w*)\s+ответ\s*[:：]|remove (?:an? )?incorrect answer)", re.I)
+    question = ocr_texts(groups[:1])[0]
+    if header.match(question) or toolbar.search(question):
+        bounds = prompt_bounds(groups[0], pages[0].size)
+        if bounds is None:
+            return None
+        # The band above the cards may contain a timer and action controls.
+        # Keep only the located question, including its wrapped lines and words.
+        left, top, right, bottom = bounds
+        groups[0] = [part for part in groups[0] if
+                     left <= part['x'] + part['w']/2 <= right and top <= part['y'] + part['h']/2 <= bottom]
+        x, y, r, b = boxes[0]
+        scale = (b-y) / (pages[0].height-20)
+        boxes[0] = (x, y + max(0, top-10)*scale, r, y + min(pages[0].height-20, bottom-10)*scale)
     question = ocr_texts(groups[:1])[0]
     groups[1:] = _short_card_reading(pages[1:], groups[1:], question, binary, languages)
     texts = ocr_texts(groups)
     question = texts[0]
-    metadata = re.match(r"^(?:игрок|раунд\s*\d|вопрос\s*\d|озвучка|player|round\s*\d|question\s*\d)\b", question, re.I)
-    if metadata or (len(question.split()) < 3 and '?' not in question) or not all(texts) or len({s.casefold() for s in texts[1:]}) != 4:
+    options = texts[1:]
+    symbols = _chemical_symbol_prompt(question) and all(re.fullmatch(r'[A-Za-z]{1,3}', text) for text in options)
+    unique = set(options) if symbols else {text.casefold() for text in options}
+    if header.match(question) or (len(question.split()) < 3 and '?' not in question) or not all(texts) or len(unique) != 4:
         return None
     if not all(map(_reliable_card_group, groups)):
         return None

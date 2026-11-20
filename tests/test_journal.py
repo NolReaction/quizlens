@@ -70,6 +70,21 @@ class JournalTests(unittest.TestCase):
         self.assertIsNone(self.lookup())
         self.assertFalse(any(entry["corrected"] for entry in self.journal.list()))
 
+    def test_reviews_compare_original_hint_and_stay_with_the_model_attempt(self):
+        options = ["Первый", "Второй"]
+        suggestion = {"choice": 1, "choices": [1], "kind": "model_knowledge"}
+        first = self.journal.record(self.question, options, [], "local-qwen", "single", 1,
+                                    suggestion, "browser", 5, 100)
+        second = self.journal.record(self.question, options, [], "local-qwen", "single", 1,
+                                     suggestion, "browser", 5, 100)
+        self.assertEqual(self.journal.save_correction(first, [1])["review"], "correct")
+        self.assertEqual(self.journal.save_correction(second, [2])["review"], "incorrect")
+        self.assertEqual(self.journal.get(second)["response"]["choice"], 1)
+        self.assertEqual([row["review"] for row in self.journal.list()], ["incorrect", "correct"])
+        self.assertIsNone(self.journal.lookup(self.question, options, [], "single", 1))
+        self.assertIsNone(self.journal.forget(second)["review"])
+        self.assertEqual(self.journal.get(first)["review"], "correct")
+
     def test_replay_retains_the_type_and_basis_of_a_verified_answer(self):
         for metadata in ({"kind": "calculation", "verification": {"kind": "calculation", "equation": "8 / 200 × 100 = 4%"}},
                          {"kind": "ocr_card", "matchedQuestion": "Какова конверсия?"}):

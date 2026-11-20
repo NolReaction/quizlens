@@ -25,8 +25,8 @@ function fillRect(frame, x, y, w, h) {
 async function makeSession({modelEndpoint, lecturesEndpoint, savedModel, savedWithoutDocuments} = {}) {
   const port = { now: 0, frame: paint(), texts: initial, ocr: [], detections: [], lookups: [], answers: [] };
   function request(path, payload) {
-    return new Promise(resolve => {
-      if (path === '/api/ocr') port.ocr.push({ texts: payload.texts, lectureIds: payload.lectureIds, resolve });
+    return new Promise((resolve,reject) => {
+      if (path === '/api/ocr') port.ocr.push({ texts: payload.texts, lectureIds: payload.lectureIds, resolve, reject });
       else if (path === '/api/detect-layout') port.detections.push({payload,resolve});
       else if (path === '/api/solve') port.lookups.push({ ...payload, resolve });
       else throw new Error(path);
@@ -39,6 +39,10 @@ async function makeSession({modelEndpoint, lecturesEndpoint, savedModel, savedWi
     close() { this.open=false; setImmediate(() => this.listeners?.close?.()); },
     replaceChildren() { this.children = []; },
     setAttribute(name,value) { (this.attributes ??= {})[name]=value; },
+    toggleAttribute(name,present) {
+      if (present) this.setAttribute(name,'');
+      else if (this.attributes) delete this.attributes[name];
+    },
     append(...items) { (this.children ??= []).push(...items); }, add() {}, classList: { toggle() {} }, value: 'qwen',
   };
   const elements = new Map();
@@ -215,19 +219,57 @@ test('a moving progress bar and timer cannot invalidate an OCR or lookup in flig
   assert.deepEqual(port.answers.slice(answered).map(item => item.title), ['x2']);
 });
 
-test('a single incomplete OCR preserves the answer; two blanks remove it', async () => {
-  const { port, read, finish } = await makeSession();
+test('brief incomplete frames preserve the answer; a persistent miss removes it', async () => {
+  const { port, node, read, step, finish } = await makeSession();
   read(initial); read(initial);
   await finish(port.lookups[0], 3);
-  read(blank); read(initial);
+  read(blank); read(blank);
+  assert.equal(port.answers.at(-1).title, '10 %');
+  assert.equal(node('answer').attributes['data-capture-recheck'], '');
+  read(initial);
+  assert.equal(node('answer').attributes['data-capture-recheck'], undefined);
   assert.equal(port.answers.at(-1).title, '10 %');
   assert.equal(port.lookups.length, 1);
   read(blank); read(blank);
+  await step(1500, {hold:true});
+  assert.equal(port.answers.at(-1).tag, undefined);
+  read(blank);
   assert.equal(port.answers.at(-1).title, 'Прочитаны не все области');
   assert.match(port.answers.at(-1).subtitle, /вопрос, вариант 1, вариант 2, вариант 3, вариант 4/);
   read(initial); read(initial);
   assert.equal(port.answers.at(-1).title, '10 %');
   assert.equal(port.lookups.length, 1);
+});
+
+test('a hover-like competing OCR read or temporary OCR error does not replace a confirmed answer', async () => {
+  const {port, node, read, step, finish, flush}=await makeSession();
+  read(initial);read(initial);
+  await finish(port.lookups[0],2);
+  const count=port.answers.length;
+  read([initial[0],...initial.slice(1,4),'1 % .']);
+  assert.equal(port.answers.length,count);
+  assert.equal(node('answer').attributes['data-capture-recheck'],'');
+  read(initial);
+  await step(1900,{hold:true});
+  port.ocr.shift().reject(new Error('Временная ошибка распознавания.'));
+  await flush();
+  assert.equal(port.answers.length,count);
+  assert.equal(node('answer').attributes['data-capture-recheck'],'');
+  await step(520);
+  assert.equal(node('answer').attributes['data-capture-recheck'],undefined);
+  assert.equal(port.answers.at(-1).title,'x2');
+  assert.equal(port.lookups.length,1);
+});
+
+test('a non-cacheable model result received during a cursor occlusion resumes after the same question returns', async () => {
+  const {port, read, flush}=await makeSession();
+  read(initial);read(initial);read(blank);
+  port.lookups[0].resolve({kind:'retrieval',choice:null,detail:'Недостаточно текста.'});
+  await flush();
+  assert.equal(port.answers.at(-1).title,'Ищу в документах…');
+  read(initial);
+  assert.equal(port.answers.at(-1).title,'Нет подтверждения');
+  assert.equal(port.lookups.length,1);
 });
 
 test('old response is withheld during a transition and stale deliveries cannot overwrite a new result', async () => {
@@ -303,7 +345,7 @@ test('continually changing OCR text eventually hides a stale answer', async () =
 });
 
 test('a model percentage stays tentative until calculation verifies the result; only the proof is reused', async () => {
-  const { port, read, flush, api, node } = await makeSession();
+  const { port, read, step, flush, api, node } = await makeSession();
   const texts = ['Из 1000 клиентов ушли 10. Чему равна Accuracy при прогнозе «останется»?', '0%', '1%', '50%', '99%'];
   const equation = '990 / 1000 × 100 = 99%';
   const evidence = {source:'Лекция', excerpt:equation};
@@ -317,11 +359,11 @@ test('a model percentage stays tentative until calculation verifies the result; 
   assert.ok(node('answer').children.some(child => child.textContent === 'Вариант модели · расчёт не проверен'));
   see(texts);
   assert.equal(port.lookups.length, 1);
-  see(blank); see(texts);
+  see(blank); await step(1500,{hold:true}); read(blank); see(texts);
   assert.equal(port.lookups.length, 2);
   port.lookups[1].resolve({...evidence, kind:'calculation', choice:4, verification:{kind:'calculation', equation}});
   await flush();
-  see(blank); see(texts);
+  see(blank); await step(1500,{hold:true}); read(blank); see(texts);
   assert.equal(port.lookups.length, 2);
   const replay = port.answers.at(-1);
   assert.equal(replay.title, '99%');
@@ -572,7 +614,7 @@ test('tab reading shows the text without sources and submits the same frame once
   assert.equal(port.lookups[0].question,initial[0]);
 });
 
-test('a selected model answers automatically without documents, quotes, or recording', async()=>{
+test('a selected model answers automatically without documents or quotes and respects recording', async()=>{
   const {api,node,port,flush}=await makeSession();
   api.state.selected.clear();
   node('model').value='qwen';
@@ -586,9 +628,9 @@ test('a selected model answers automatically without documents, quotes, or recor
   assert.equal(request.model,'qwen');
   assert.equal(request.question,initial[0]);
   assert.deepEqual([...request.lectureIds],[]);
-  assert.equal(request.record,false);
+  assert.equal(request.record,true);
   assert.equal(request.captureTrace,undefined);
-  request.resolve({kind:'model_knowledge',choice:2,choices:[2],source:'Fake source',excerpt:'Fake quote',journalId:'fake'});
+  request.resolve({kind:'model_knowledge',choice:2,choices:[2],source:'Fake source',excerpt:'Fake quote'});
   await flush();
   const view=port.answers.at(-1);
   assert.equal(view.title,initial[2]);
@@ -711,7 +753,7 @@ test('model knowledge validates the full set of choices and displays multiple an
   assert.equal(port.lookups[0].expectedCount,2);
   port.lookups[0].resolve({kind:'model_knowledge',choices:[2,2],source:'Fake source',excerpt:'Fake quote'});
   await flush();
-  assert.equal(port.answers.at(-1).title,'Модель не выбрала ответ');
+  assert.equal(port.answers.at(-1).title,'Вариант не подтверждён');
   assert.equal(port.answers.at(-1).source,undefined);
   assert.equal(port.answers.at(-1).selections,undefined);
 
