@@ -60,8 +60,14 @@
   const toggle = menu.querySelector('summary');
   const label = toggle.querySelector('span');
   const panel = menu.querySelector('.nav-popover');
-  panel.inert = true;
-  menu.addEventListener('toggle', () => { panel.inert = !menu.open; });
+  function setMenuOpen(open) {
+    menu.open = open;
+    panel.inert = !open;
+  }
+  toggle.addEventListener('click', event => {
+    event.preventDefault();
+    setMenuOpen(!menu.open);
+  });
   const updateLink = document.getElementById('navUpdates');
   for (const link of panel.querySelectorAll('a')) {
     if (link !== updateLink && link.pathname === location.pathname) link.setAttribute('aria-current', 'page');
@@ -69,7 +75,7 @@
 
   const compact = matchMedia('(max-width: 660px)');
   function layout() {
-    menu.open = false;
+    setMenuOpen(false);
     if (compact.matches) panel.prepend(sections);
     else nav.insertBefore(sections, menu);
     label.textContent = compact.matches ? 'Меню' : 'Настройки';
@@ -78,14 +84,14 @@
   compact.addEventListener('change', layout);
 
   document.addEventListener('pointerdown', event => {
-    if (menu.open && !menu.contains(event.target)) menu.open = false;
+    if (menu.open && !menu.contains(event.target)) setMenuOpen(false);
   });
   document.addEventListener('focusin', event => {
-    if (menu.open && !menu.contains(event.target)) menu.open = false;
+    if (menu.open && !menu.contains(event.target)) setMenuOpen(false);
   });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && menu.open) {
-      menu.open = false;
+      setMenuOpen(false);
       toggle.focus();
       event.preventDefault();
     }
@@ -100,12 +106,12 @@
     } else {
       link.target = window.quizLensUpdateActivity?.busy() ? '_blank' : '_self';
       link.rel = 'noopener';
-      if (menu.open) { menu.open = false; toggle.focus(); }
+      if (menu.open) { setMenuOpen(false); toggle.focus(); }
     }
   });
 
   function showUpdates() {
-    menu.open = false;
+    setMenuOpen(false);
     toggle.focus({preventScroll: true});
     if (!dialog.open) dialog.showModal();
   }

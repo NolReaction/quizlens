@@ -84,7 +84,11 @@ details.disclosure-closing > summary::after {transform:rotate(45deg); margin-bot
       transition:opacity 140ms ease, transform 160ms cubic-bezier(.2,.8,.2,1),
         content-visibility 160ms allow-discrete;
     }
-    #serviceMenu[open]::details-content {opacity:1; transform:none}
+    #serviceMenu[open]::details-content {
+      opacity:1; transform:none;
+      /* Reveal links for keyboard focus in the same click that opens the menu. */
+      transition:opacity 140ms ease, transform 160ms cubic-bezier(.2,.8,.2,1);
+    }
     #serviceMenu:not([open]) .nav-popover {pointer-events:none}
   }
   .updates-dialog[open] {animation:nav-appear 160ms cubic-bezier(.2,.8,.2,1)}
