@@ -56,6 +56,22 @@ class AutoLayoutTests(unittest.TestCase):
                 parts.append(part(value,x,y,.10))
             self.assertEqual(detect_layout(parts)['texts'][1:],values)
 
+    def test_badge_fused_to_percentage_moves_region_into_answer_column(self):
+        # A narrow ordinal can become the leading digit of a Tesseract word.
+        def box(text, x, y, width, height):
+            return part(text, x/928, y/790, width/928, height/790)
+        question = box('What is the conversion rate?', 100, 240, 360, 24)
+        options = [box('1', 123, 322, 5, 9), box('2%', 147, 320, 31, 15),
+                   box('24%', 123, 372, 55, 15), box('38%', 123, 425, 56, 15),
+                   box('4', 122, 480, 7, 9), box('16%', 147, 478, 40, 15)]
+        result = detect_layout([question, *options], aspect=928/790)
+        self.assertEqual(result['texts'][1:], ['2%', '4%', '8%', '16%'])
+        self.assertGreater(result['regions'][2]['x']*928, 130)
+        for left in (123, 147):
+            options[2] = box('24%', left, 372, 40, 15)
+            result = detect_layout([question, *options], aspect=928/790)
+            self.assertEqual(result['texts'][2], '24%')
+
     def test_supplies_wrapped_question_with_article_and_numbers(self):
         parts=[part('A store had 200 visitors. Eight people bought',.12,.20,.48),
                part('something. What was the conversion rate?',.12,.235,.43)]

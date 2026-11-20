@@ -4,6 +4,7 @@ import math
 import re
 from statistics import median
 
+from ocr_layout import percent_badge_splits
 from quiz_mode import checkbox_prefix, clean_options, instruction_only, selection_hint
 
 
@@ -382,7 +383,7 @@ def _unmarked(lines, question, aspect):
                 abs(s.cy-mark.cy) < .85*max(mark.h,s.h)]
         if len(near) == 1:
             content.remove(mark)
-            badge_targets[near[0]] = mark.text
+            badge_targets[near[0]] = mark
 
     # Wrapped option lines have a smaller vertical gap than separate buttons.
     # Build independent columns so the wrapping of one answer cannot reorder its neighbor.
@@ -409,7 +410,12 @@ def _unmarked(lines, question, aspect):
         return None
     # Establish visual order from column membership, matching _extract.
     anchors = [col[i] for i in range(max(map(len, sorted_cols))) for col in sorted_cols if i < len(col)]
-    result = _extract(anchors, anchors, question, aspect)
+    fields = [[vars(badge_targets[s]), vars(s)] if s in badge_targets else [vars(s)] for s in anchors]
+    text_anchors = anchors.copy()
+    for i, (value, start) in percent_badge_splits(fields).items():
+        span = anchors[i]
+        text_anchors[i] = Span(value, start, span.y, span.right - start, span.h)
+    result = _extract(text_anchors, text_anchors, question, aspect)
     if not result:
         return None
     # Resolve a full series before dropping individual ordinals; this retains
@@ -421,7 +427,7 @@ def _unmarked(lines, question, aspect):
     for i,s in enumerate(anchors):
         marks = [_mark(Span(s.text, s.x, s.y, s.w, s.h),series) for series in _SERIES]
         if s in badge_targets:
-            if not any(m and m[0]==i for m in (_mark(Span(badge_targets[s],s.x,s.y,s.w,s.h), k) for k in _SERIES)):
+            if not any(m and m[0]==i for m in (_mark(badge_targets[s], k) for k in _SERIES)):
                 return None
         # Strip an explicit punctuation-prefixed label when others were missed;
         # numeric option content such as '4 GB' is deliberately kept intact.

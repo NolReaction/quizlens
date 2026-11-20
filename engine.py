@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+from decimal import Decimal
 from html.parser import HTMLParser
 from itertools import islice
 from pathlib import Path
@@ -438,12 +439,31 @@ class LectureIndex:
         if len(positions) != len(options):
             return None
         candidates = []
+        unreadable = None
         for i in matches:
             row = self.sections[i]
             answers = _card_answers(row, selection_mode)
-            if answers and (not row.get("options") or {_exact(v) for v in row["options"]} == positions.keys()):
+            if not answers:
+                continue
+            card_options = {_exact(v) for v in (row.get("options") or ())}
+            if not card_options or card_options == positions.keys():
                 candidates.append((row, answers))
+                continue
+            # An OCR badge can fuse with the only missing answer ("2" + "4%" → "24%").
+            # Detect only this discrepancy, with all other choices matching the same card.
+            missing = card_options - positions.keys()
+            extra = positions.keys() - card_options
+            if len(missing) == len(extra) == 1:
+                expected, received = next(iter(missing)), next(iter(extra))
+                if (_NUMBER.fullmatch(expected) and expected in {_exact(v) for v in answers}
+                        and received == f"{positions[received]}{expected}"):
+                    unreadable = (row, expected, received)
         if not candidates:
+            if unreadable:
+                card, expected, received = unreadable
+                detail = (f"В карточке ответ «{expected}», а в варианте {positions[received]} прочитано «{received}». "
+                          "Цифра номера могла слиться с ответом. Перепроверь распознанные варианты.")
+                return dict(_unknown([card]), detail=detail)
             return None
         answer_sets = {frozenset(_exact(v) for v in values) for _, values in candidates}
         row, answers = candidates[0]
@@ -755,7 +775,34 @@ def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, se
     limit = quiz_output_limit(selection_mode, expected_count or len(options))
     completion = _ask_model(base_url, model, messages, limit, timeout)
     result = _quiz_result(_completion(completion), evidence, hits, options, selection_mode, expected_count)
+    if selection_mode == "single" and result["choice"]:
+        selected = options[result["choice"] - 1]
+        if _contradicts_conversion(question, selected, result["quote"]):
+            result = dict(_unknown([]), kind="retrieval", source=result["source"], quote=result["quote"],
+                          detail="Процент в выбранном ответе расходится с расчётом в цитате. Проверь цифры в распознанных вариантах.")
     return {**result, "tokenUsage": _quiz_usage(completion, messages)}
+
+
+# Check a directly cited worked conversion, only when both example counts match the question.
+# A different worked example can legitimately support a new answer via the same formula.
+_CONVERSION = re.compile(r"\b(?:конверси\w*|conversion)\b", re.I)
+_CONVERSION_RESULT = re.compile(
+    r"\b(?:конверсия|conversion(?: rate)?)\s*(?:равна|составляет|is|equals|=|:)\s*"
+    r"(\d+)\s*/\s*(\d+)\s*[×*·]\s*100\s*%?\s*=\s*(\d+(?:[.,]\d+)?)\s*%", re.I)
+
+
+def _contradicts_conversion(question, selected, quote):
+    selected = _exact(selected)
+    if not (re.fullmatch(r"\d+(?:[.,]\d+)?%", selected) and _CONVERSION.search(question)) or _NEGATIVE.search(question):
+        return False
+    equations = _CONVERSION_RESULT.findall(quote)
+    if len(equations) != 1:
+        return False
+    buyers, visitors, percent = equations[0]
+    counts = sorted(n.strip() for n in _NUMBER.findall(question))
+    if counts != sorted([buyers, visitors]):
+        return False
+    return Decimal(selected[:-1].replace(",", ".")) != Decimal(percent.replace(",", "."))
 
 
 def quiz_output_limit(selection_mode, answer_count):

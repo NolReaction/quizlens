@@ -599,8 +599,7 @@ function selectionForFrame(hint,optionCount) {
   if (hint.selectionMode==='unknown') return {selectionMode:'unknown',expectedCount:null};
   return {selectionMode:'single',expectedCount:1};
 }
-function displayResult(result, options, selection) {
-  state.displayedKey=state.currentKey;
+function answerForResult(result, options, selection) {
   const journal = {journalId:result.journalId,journalWarning:result.journalWarning,tokenUsage:result.tokenUsage};
   if (selection.selectionMode==='multiple') {
     const choices=result.choices;
@@ -613,33 +612,35 @@ function displayResult(result, options, selection) {
       });
       if (selections.every(item=>item.source && item.excerpt)) {
         const numbers=new Intl.ListFormat('ru',{type:'conjunction'}).format(selections.map(item=>String(item.choice)));
-        answer({...journal,title:'Отметь '+numbers,selections});
-        status('Ответ готов','active');
-        return;
+        return {...journal,title:'Отметь '+numbers,selections};
       }
     }
   } else if (Number.isInteger(result.choice) && result.choice>=1 && result.choice<=options.length) {
-    answer({...journal,tag:'Вариант '+result.choice,title:options[result.choice-1],source:result.source,excerpt:result.excerpt});
-    status('Ответ готов','active');
-    return;
+    return {...journal,tag:'Вариант '+result.choice,title:options[result.choice-1],source:result.source,excerpt:result.excerpt};
   }
-  answer({...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Сверь ответ с найденным фрагментом документа.',source:result.source,excerpt:result.excerpt,unclear:true});
-  status('Проверь источник','problem');
+  return {...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Сверь ответ с найденным фрагментом документа.',source:result.source,excerpt:result.excerpt,unclear:true};
+}
+function displayResult(view) {
+  state.displayedKey=state.currentKey;
+  answer(view);
+  if(view.unclear) status('Проверь источник','problem');
+  else status('Ответ готов','active');
 }
 function cacheResult(key, result) {
   answerCache.set(key,result);
   if(answerCache.size>64) answerCache.delete(answerCache.keys().next().value);
 }
 async function solve(texts,key,session,selection) {
+  if(state.displayedKey===key) return;
+  const options=texts.slice(1);
   const cached=answerCache.get(key);
   if(cached) {
-    if(state.displayedKey!==key) displayResult({...cached, tokenUsage:{source:'cache'}},texts.slice(1),selection);
+    displayResult(answerForResult({...cached, tokenUsage:{source:'cache'}},options,selection));
     return;
   }
   if(state.solveJob?.key===key || performance.now()<state.retrySolveAt) return;
   state.solveJob?.controller.abort();
   const job={key,controller:new AbortController()};state.solveJob=job;
-  const options=texts.slice(1);
   answer({title:'Ищу в документах…'});status('Ищу ответ','active');
   try {
     const params={question:texts[0],options,...selection,model:el('model').value,lectureIds:[...state.selected],
@@ -649,8 +650,9 @@ async function solve(texts,key,session,selection) {
     if (params.record) params.captureTrace=traceForRequest(requestAt);
     const result=await postJson('/api/solve',params,job.controller.signal);
     if(state.session!==session || job.controller.signal.aborted) return;
-    cacheResult(key,result);
-    if(state.currentKey===key && state.candidateKey===null) displayResult(result,options,selection);
+    const view=answerForResult(result,options,selection);
+    if(!view.unclear) cacheResult(key,result);
+    if(state.currentKey===key && state.candidateKey===null) displayResult(view);
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;
     if(state.currentKey===key && state.candidateKey===null) {

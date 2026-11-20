@@ -1,5 +1,6 @@
 """Reconstruct quiz text from ordered OCR fragments with top-left bounding boxes."""
 import re
+from statistics import median
 
 # A bare time can be part of the question. It needs a counter on the same
 # line or a distinct right-hand clock above/below the actual question.
@@ -116,6 +117,69 @@ def _badge_candidate(parts, number):
     return body, explicit or separated, could_be_count
 
 
+_PERCENT = re.compile(r"[0-9]+(?:[.,][0-9]+)?\s*[%‰]")
+
+
+def percent_badge_splits(options):
+    """Locate a digit joined to its percentage only with measured badge and answer columns."""
+    peers = []
+    for number, parts in enumerate(options, 1):
+        if len(parts) < 2:
+            continue
+        mark, *body = sorted(parts, key=lambda p: p["x"])
+        value = _join(body)
+        if mark["text"] != str(number) or not _PERCENT.fullmatch(value):
+            continue
+        start = body[0]["x"]
+        gutter = start - mark["x"]
+        if gutter <= 0 or not 0 < mark["w"] <= .52 * gutter:
+            continue
+        end = max(p["x"] + p["w"] for p in body)
+        peers.append((mark["x"], start, end - start, value))
+
+    splits = {}
+    for number, parts in enumerate(options, 1):
+        value = _join(parts)
+        if not _PERCENT.fullmatch(value) or not value.startswith(str(number)):
+            continue
+        tail = value[1:]
+        if not _PERCENT.fullmatch(tail):
+            continue
+        x = min(p["x"] for p in parts)
+        right = max(p["x"] + p["w"] for p in parts)
+        aligned = [(start, width, text) for mark, start, width, text in peers
+                   if abs(mark - x) <= .18 * (start - mark)]
+        if len(aligned) < 2:
+            continue
+        start = median(a for a, _, _ in aligned)
+        gutter = start - x
+        if any(abs(a - start) > .18 * gutter for a, _, _ in aligned):
+            continue
+        # A real 24% at either margin must survive. The box should reach as far
+        # to the right of the verified gutter as a separately read 4% does.
+        widths = [width for _, width, text in aligned
+                  if len(re.sub(r"\s", "", text)) == len(re.sub(r"\s", "", tail))
+                  and text[-1] == tail[-1]]
+        if widths and abs(right - start - median(widths)) <= .34 * gutter:
+            splits[number - 1] = (tail, start)
+    return splits
+
+
+def _overlapping_percent_digit(parts):
+    # Tesseract can report the lower loop of '%' a second time as a tiny digit.
+    # Only remove it when it overlaps the already recognized percent glyph.
+    if len(parts) != 2:
+        return False
+    amount, digit = parts
+    if not _PERCENT.fullmatch(amount["text"]) or not re.fullmatch(r"[0-9]", digit["text"]):
+        return False
+    right = amount["x"] + amount["w"]
+    return (0 < digit["w"] <= .28 * amount["w"] and 0 < digit["h"] <= .6 * amount["h"]
+            and right - digit["w"] <= digit["x"] <= right - .5 * digit["w"]
+            and amount["y"] + .3 * amount["h"] <= digit["y"]
+            and digit["y"] + digit["h"] <= amount["y"] + 1.04 * amount["h"])
+
+
 def ocr_texts(groups):
     """Question followed by two to eight choices; preserve ambiguous content and option order."""
     texts = [_join(parts) for parts in groups]
@@ -125,7 +189,13 @@ def ocr_texts(groups):
     if not all(all(key in p for key in ("x", "y", "w", "h")) for group in groups for p in group):
         return texts
     texts[0] = _join(_without_timer(groups[0]))
-    badges = [_badge_candidate(parts, i) for i, parts in enumerate(groups[1:], 1)]
+    options = groups[1:]
+    if sum(bool(_PERCENT.fullmatch(value)) for value in texts[1:]) >= 2:
+        options = [parts[:1] if _overlapping_percent_digit(parts) else parts for parts in options]
+        texts[1:] = [_join(parts) for parts in options]
+    badges = [_badge_candidate(parts, i) for i, parts in enumerate(options, 1)]
+    for index, (value, _) in percent_badge_splits(options).items():
+        badges[index] = (value, True, False)
     strong = sum(1 for candidate in badges if candidate and candidate[1])
     if strong and (all(badges) or strong >= 3) and not all(b[2] for b in badges if b):
         cleaned = [candidate[0] if candidate and (candidate[1] or all(badges)) else raw

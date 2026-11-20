@@ -84,6 +84,39 @@ class LectureTests(unittest.TestCase):
             self.assertIsNone(solve(changed, original, index)["choice"])
         self.assertIsNone(solve(question, ["25%","15%","10%","5%"], index)["choice"])
 
+    def test_fused_ordinal_is_not_a_new_answer_even_if_model_would_choose_another(self):
+        examples = Path(__file__).resolve().parents[1] / "examples"
+        cards = import_document(examples / "analytics-demo.quiz.json")
+        lecture = import_document(examples / "analytics-demo.txt")
+        card = next(c for c in cards if "Магазин посетили 200" in c.get("question", ""))
+        index = LectureIndex([*cards, *lecture])
+        with patch("engine._api") as complete:
+            result = solve(card["question"], ["2%", "24%", "8%", "16%"], index, "test")
+            self.assertIsNone(result["choice"])
+            self.assertIn("распознанные варианты", result["detail"])
+            self.assertEqual(solve(card["question"], ["8%", "16%", "2%", "4%"], index, "test")["choice"], 4)
+            complete.assert_not_called()
+
+        # Another authored card for the exact question and actual option set takes precedence.
+        other = dict(card, options=["2%", "24%", "8%", "16%"], answer="24%")
+        actual = solve(card["question"], other["options"], LectureIndex([card, other]))
+        self.assertEqual(actual["choice"], 2)
+
+    def test_percent_choice_must_agree_with_cited_conversion_for_the_same_counts(self):
+        question = "Магазин посетили 200 человек. Покупку сделали 8 человек. Какова конверсия?"
+        quote = "При 200 посетителях и 8 покупателях конверсия равна 8 / 200 × 100 % = 4 %."
+        index = LectureIndex([{"source": "Лекция", "location": "1", "text": quote}])
+        options = ["2%", "24%", "8%", "16%"]
+        completion = {"choices": [{"message": {"content": '{"choice":3,"evidence":1}'}}]}
+        with patch("engine._api", return_value=completion):
+            result = solve(question, options, index, "test")
+            self.assertEqual((result["choice"], result["quote"]), (None, quote))
+            self.assertIn("расходится", result["detail"])
+            self.assertEqual(solve(question, ["2%", "8%", "4,0%", "16%"], index, "test")["choice"], 3)
+            for changed in (question.replace("200", "100"), question.replace("Какова конверсия", "Какая конверсия неверна"),
+                            question.replace("Какова конверсия", "Какова точность")):
+                self.assertEqual(solve(changed, options, index, "test")["choice"], 3)
+
     def test_quote_grounding(self):
         quote = "Recall учитывает пропущенные положительные случаи."
         index = LectureIndex([{"source":"lecture.txt","location":"стр. 1","text":quote}])

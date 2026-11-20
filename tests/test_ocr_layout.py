@@ -56,6 +56,29 @@ class Layout(unittest.TestCase):
             ["Шаг 1 процесса", "Осталось 2 секунды", "3 тысячи", "4 / 9"], 1)]
         self.assertEqual(read(option("Что значит 2?"), mixed)[1:], ["Шаг 1 процесса", "Осталось 2 секунды", "3 тысячи", "4 / 9"])
 
+    def test_percentage_with_and_without_fused_ordinals(self):
+        options = [[part('1', 10, w=5), part('2%', 35, w=31)],
+                   [part('24%', 10, w=56)], [part('38%', 10, w=56)],
+                   [part('4', 10, w=6), part('16%', 35, w=40)]]
+        self.assertEqual(read(option('Conversion?'), options)[1:], ['2%', '4%', '8%', '16%'])
+        options[1] = [part('24%', 35, w=40)]
+        self.assertEqual(read(option('Conversion?'), options)[2], '24%')
+        options[1] = [part('24%', 10, w=40)]
+        self.assertEqual(read(option('Conversion?'), options)[2], '24%')
+        # A single reference field is insufficient to alter a numeric answer.
+        options[1] = [part('24%', 10, w=56)]
+        options[3] = [part('16%', 35, w=40)]
+        self.assertEqual(read(option('Conversion?'), options)[2], '24%')
+
+    def test_overlapping_digit_from_lower_loop_of_percent(self):
+        options = [option('2%'), [part('4%', 7, 23, 37, 18), part('2', 40, 32, 7, 9)],
+                   option('8%'), option('16%')]
+        self.assertEqual(read(option('Conversion?'), options)[2], '4%')
+        options[1][1]['x'] = 47
+        self.assertEqual(read(option('Conversion?'), options)[2], '4% 2')
+        options[1][1] = part('2', 40, 18, 7, 9)
+        self.assertEqual(read(option('Conversion?'), options)[2], '4% 2')
+
     def test_badges_must_corroborate_each_other(self):
         opts = [[part("1", 4), part("попытка", 48)], option("другое"), option("нет"), option("да")]
         self.assertEqual(read(option("Что?"), opts)[1], "1 попытка")

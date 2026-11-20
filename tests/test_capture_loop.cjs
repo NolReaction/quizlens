@@ -167,6 +167,28 @@ test('no visual signal is required for small numeric or mathematical changes and
   }
 });
 
+test('corrected OCR percentages are solved separately; an unconfirmed previous reading is not reused', async () => {
+  const { port, read, finish, flush } = await makeSession();
+  const corrected = ['Какова конверсия при 8 покупках на 200 посетителей?', '2%', '4%', '8%', '16%'];
+  const misread = [...corrected];
+  misread[2] = '24%';
+  read(misread); read(misread);
+  port.lookups[0].resolve({ choice: null, choices: [], kind: 'retrieval', excerpt: '8 / 200 × 100 % = 4 %' });
+  await flush();
+  assert.equal(port.answers.at(-1).title, 'Нет подтверждения');
+  read(misread); read(misread);
+  assert.equal(port.lookups.length, 1, 'an unchanged image must not call the model repeatedly');
+  read(corrected); read(corrected);
+  await finish(port.lookups[1], 2);
+  assert.equal(port.answers.at(-1).title, '4%');
+  read(misread); read(misread);
+  assert.equal(port.lookups.length, 3, 'the earlier uncertain result must be checked when it returns');
+  read(corrected); read(corrected);
+  assert.equal(port.lookups.length, 3);
+  assert.equal(port.answers.at(-1).title, '4%');
+  assert.equal(port.answers.at(-1).tokenUsage.source, 'cache');
+});
+
 test('continually changing OCR text eventually hides a stale answer', async () => {
   const { port, read, step, finish } = await makeSession();
   read(initial); read(initial);
