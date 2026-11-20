@@ -665,8 +665,14 @@ test('direct tab snapshots solve immediately and later OCR or tab jobs cannot re
   assert.equal(port.lookups.length,2);
   tab.read(['Какой формат?','TXT','JSON'],{selectionMode:'single'});
   assert.equal(port.lookups.length,3);
-  tab.read([]);await finish(port.lookups[2],2);
+  tab.read([],{reason:'partial'});await finish(port.lookups[2],2);
   assert.equal(port.answers.at(-1).tag,undefined);
+  assert.equal(port.answers.at(-1).title,'Вопрос виден не целиком');
+  tab.read([],{reason:'multiple'});
+  assert.equal(port.answers.at(-1).title,'Видно несколько вопросов');
+  tab.read([],{reason:'waiting'});
+  assert.match(port.answers.at(-1).subtitle,/Выбрать окно/);
+  assert.equal(port.lookups.length,3);
   tab.read(['Что выбрать?','А','Б'],{selectionMode:'multiple'});
   assert.equal(port.lookups.at(-1).selectionMode,'multiple');
   tab.stop();await finish(port.lookups.at(-1),2);

@@ -2,12 +2,58 @@
 from pathlib import Path
 
 READER = Path(__file__).resolve().parents[2] / "browser-extension" / "reader.js"
+BUTTON_QUESTION = "Какое из этих деревьев хвойное?"
+BUTTON_TASK = "Из этих деревьев выберите хвойное"
+BUTTON_OPTIONS = ["Липа", "Ольха", "Сосна", "Клён"]
+
+
+def button_quiz_html(*, marked=False):
+    """A practice slide built with plain buttons, visual marks, and nearby controls."""
+    options = "".join(
+        f'<button type="button"><span>{mark}</span><span>{option}</span>'
+        '<span hidden>Скрытые данные варианта</span></button>'
+        for mark, option in zip("▲◆●■", BUTTON_OPTIONS)
+    )
+    prompt = (f'<p class="prompt" data-q="text">{BUTTON_TASK}</p>' if marked else
+              f'<div class="prompt">{BUTTON_QUESTION}</div>')
+    choices = ' data-q="options"' if marked else ''
+    return f"""<!doctype html><html lang="ru"><meta charset="utf-8">
+      <title>Тренировка по ботанике</title>
+      <style>
+        body {{background:#182238;color:#f4f6fb;font:18px system-ui;margin:12px}}
+        main {{max-width:610px;margin:auto}}
+        nav {{display:flex;justify-content:space-between;gap:12px}}
+        .progress {{margin:10px auto;text-align:center}}
+        .prompt {{font-weight:650;text-align:center;margin:12px 0}}
+        .choices {{display:flex;flex-direction:column;gap:8px}}
+        .choices button {{min-height:106px;border:0;border-radius:10px;padding:12px 18px;
+          background:#3565a4;color:white;text-align:left;font:600 18px system-ui}}
+        .choices button:nth-child(2) {{background:#8d4059}}
+        .choices button:nth-child(3) {{background:#396650}}
+        .choices button:nth-child(4) {{background:#a66a34}}
+        .choices button span:first-child {{margin-right:10px}}
+        .compact .choices button {{min-height:38px}}
+      </style>
+      <main>
+        <nav><button>В меню</button><button>Озвучка</button></nav>
+        <div class="progress">Упражнение 2 из 6 · <span role="timer">20 секунд</span></div>
+        <section class="slide">
+          {prompt}
+          <div class="choices"{choices}>{options}</div>
+        </section>
+      </main></html>"""
 
 
 def check_dom_extraction(page):
+    def load_fixture(html):
+        page.set_content(html)
+        # Stub only the transport so extraction still uses real DOM layout.
+        page.evaluate("window.chrome = {runtime:{onMessage:{addListener() {}}}}")
+        page.add_script_tag(path=READER)
+
     try:
         page.set_viewport_size({"width": 880, "height": 720})
-        page.set_content("""
+        load_fixture("""
           <section id="quiz">
             <h2 id="prompt">Какой процент посетителей вернулся?</h2>
             <fieldset aria-labelledby="prompt">
@@ -21,9 +67,6 @@ def check_dom_extraction(page):
             </fieldset>
           </section>
         """)
-        # Only stub the transport: read() still uses real layout, visibility, and accessible names.
-        page.evaluate("window.chrome = {runtime:{onMessage:{addListener() {}}}}")
-        page.add_script_tag(path=READER)
         read = lambda: page.evaluate("quizLensReadVisibleQuestion()")
         result = read()
         assert result["texts"] == ["Какой процент посетителей вернулся?", "0,5%", "5%", "−5%"], result
@@ -48,5 +91,56 @@ def check_dom_extraction(page):
         # Position the option past the actual viewport, as inside a clipped/scrollable list.
         page.locator("fieldset").first.locator("label").last.evaluate("(n) => n.style.display='block'")
         assert read() == {"texts": [], "reason": "partial"}
+
+        load_fixture(button_quiz_html())
+        frame = read()
+        assert frame == {"texts": [BUTTON_QUESTION, *BUTTON_OPTIONS], "selectionMode": "single"}, frame
+
+        buttons = page.locator(".choices button")
+        buttons.last.evaluate("button => {button.disabled = true}")
+        assert read() == {"texts": [], "reason": "partial"}
+        page.locator(".choices").evaluate("group => {for (const button of group.children) button.disabled = true}")
+        assert read() == {"texts": [], "reason": "waiting"}
+
+        label_bottom = page.locator(".choices").evaluate("""group => {
+          for (const button of group.children) button.disabled = false;
+          const label = group.lastElementChild.children[1];
+          const bottom = label.getBoundingClientRect().bottom - group.getBoundingClientRect().top;
+          group.style.maxHeight = `${bottom + 3}px`;
+          group.style.overflow = 'auto';
+          return bottom;
+        }""")
+        # A tile border may be clipped while its label is still completely visible.
+        assert read() == frame
+        page.locator(".choices").evaluate("(group, bottom) => {group.style.maxHeight = `${bottom - 7}px`}",
+                                          label_bottom)
+        assert read() == {"texts": [], "reason": "partial"}
+        page.locator(".choices").evaluate("group => group.removeAttribute('style')")
+
+        page.locator("main").evaluate("""main => {
+          document.body.classList.add('compact');
+          main.insertAdjacentHTML('beforeend', `
+            <section id="other-slide" class="slide">
+              <div class="prompt">Какой прибор показывает температуру?</div>
+              <div class="choices"><button>Термометр</button><button>Барометр</button></div>
+            </section>`);
+        }""")
+        assert read() == {"texts": [], "reason": "multiple"}
+        page.locator(".slide").first.evaluate("slide => {slide.hidden = true}")
+        assert read() == {"texts": ["Какой прибор показывает температуру?", "Термометр", "Барометр"],
+                          "selectionMode": "single"}
+
+        page.evaluate("""() => { document.body.innerHTML = `
+          <nav aria-label="Справка"><div>Открыть настройки?</div>
+            <div class="choices"><button>Назад</button><button>Далее</button><button>Помощь</button></div>
+          </nav>
+          <section><h2>Настройки аккаунта</h2><div class="choices">
+            <button>Войти</button><button>Регистрация</button><button>Забыли пароль?</button>
+          </div></section>`; }""")
+        assert read() == {"texts": [], "reason": "waiting"}
+
+        load_fixture(button_quiz_html(marked=True))
+        frame = read()
+        assert frame == {"texts": [BUTTON_TASK, *BUTTON_OPTIONS], "selectionMode": "single"}, frame
     finally:
         page.close()

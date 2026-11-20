@@ -18,7 +18,7 @@
     available: ['Расширение найдено', 'Нажми значок QuizLens в браузере и выбери «Подключить QuizLens».'],
     paired: ['На связи · чтение выключено', 'Перейди во вкладку квиза и включи «Чтение вкладки» в расширении.'],
     restoring: ['Восстанавливаю чтение', 'Жду повторной передачи вопроса из расширения.'],
-    waiting: ['Жду вопрос', 'Покажи вопрос с вариантами. Для квиза на картинке нажми «Выбрать окно».'],
+    waiting: ['Жду вопрос', 'Если вопрос уже виден, а статус не меняется, нажми «Выбрать окно» для чтения с экрана.'],
     partial: ['Часть вопроса скрыта', 'Покажи вопрос и все варианты одновременно или используй захват окна.'],
     multiple: ['Несколько вопросов', 'Оставь на экране один вопрос или используй захват окна.'],
     question: ['Вопрос прочитан', 'Вопрос и варианты переданы в QuizLens.'],
@@ -158,7 +158,7 @@
         schedule();
       }
       display(frame.texts.length ? 'question' : readingState(frame.reason));
-      adapter.read(frame.texts, {selectionMode:frame.selectionMode, expectedCount:null});
+      adapter.read(frame.texts, {selectionMode:frame.selectionMode, expectedCount:null, reason:frame.reason});
     } else if (data?.type === 'stopped' || data?.type === 'unbound') {
       cancelDeadline();
       paired = data.type === 'stopped';

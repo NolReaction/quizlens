@@ -646,12 +646,17 @@ function stop(reason='') {
   idleAnswer();showTexts(null);
   if(reason) notify(reason);
 }
+const tabReaderNotices = {
+  waiting:{title:'Жду вопрос во вкладке',subtitle:'Вопрос уже на экране? Попробуй «Выбрать окно» в QuizLens.'},
+  partial:{title:'Вопрос виден не целиком',subtitle:'Покажи формулировку и все варианты ответа.'},
+  multiple:{title:'Видно несколько вопросов',subtitle:'Оставь в области просмотра один вопрос с вариантами.'}
+};
 function start() {
   if (state.tabReading) {
     clearWorkflow();
     state.running=state.selected.size>0;
     controls();showTexts(null);
-    answer({title:state.running ? 'Жду вопрос во вкладке' : 'Отметь документ'});
+    answer(state.running ? tabReaderNotices.waiting : {title:'Отметь документ'});
     status(state.running ? 'Читаю вкладку' : 'Отметь документ');
     if (state.running && state.tabFrame) window.quizLensTabCapture.read(state.tabFrame.texts, state.tabFrame.hint);
     return;
@@ -687,7 +692,7 @@ window.quizLensTabCapture = {
   read(texts, hint={}) {
     if (!state.tabReading || !Array.isArray(texts) || (texts.length && !validFields(texts.length))) return;
     if (!texts.every((line,i) => typeof line==='string' && line.length<=(i===0?6000:3000))) return;
-    const mode={selectionMode:hint?.selectionMode, expectedCount:hint?.expectedCount};
+    const mode={selectionMode:hint?.selectionMode, expectedCount:hint?.expectedCount, reason:hint?.reason};
     state.tabFrame={texts:texts.slice(),hint:mode};
     if (state.running) acceptTexts(texts,state.session,null,mode);
   },
@@ -962,7 +967,7 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
     state.currentKey=key;state.displayedKey=null;state.retrySolveAt=0;
     state.firstSeenAt=complete ? seenAt : null;state.confirmedTexts=complete ? texts : null;
     showTexts(texts);
-    if(!complete) {
+    if (!complete && !state.tabReading) {
       if(state.layoutMode==='auto') {
         state.regions=[];paintLiveAreas();controls();showTexts(null);
         answer({title:state.captureIssue || 'Ожидаю вопрос и варианты'});
@@ -970,7 +975,7 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
         answer({title:'Жду все '+(texts.length-1)+(texts.length<=5?' варианта':' вариантов'),subtitle:'Проверь разметку, если вопрос уже полностью виден.'});
       }
       status('Ожидаю варианты','active');
-    } else if (selection.selectionMode==='unknown') {
+    } else if (complete && selection.selectionMode==='unknown') {
       el('captureSettings').open = true;
       answer({title:'Уточни формат вопроса',subtitle:'В поле «Сколько вариантов можно отметить?» выбери «Один вариант» или «Несколько вариантов».',unclear:true});
       status('Нужен формат','problem');
@@ -987,6 +992,11 @@ function acceptTexts(raw,session,comparisonTexts,hint={},observedAt=performance.
     }
     solve(texts,key,session,selection);
   } else {
+    if (state.tabReading && !complete) {
+      const notice = Object.hasOwn(tabReaderNotices,hint.reason) ? tabReaderNotices[hint.reason] : tabReaderNotices.waiting;
+      if (state.response?.title !== notice.title) answer(notice);
+      status(notice.title,'active');
+    }
     window.QuizChart?.show(null);
   }
 }

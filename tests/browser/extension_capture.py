@@ -11,7 +11,7 @@ from PIL import ImageGrab
 from playwright.sync_api import expect, sync_playwright
 
 from onboarding import ROOT, app_server
-from tab_reader_cases import check_dom_extraction
+from tab_reader_cases import BUTTON_OPTIONS, BUTTON_TASK, button_quiz_html, check_dom_extraction
 
 
 def open_popup(source, harness, expected):
@@ -179,12 +179,34 @@ def run(url, temp, screenshots):
             open_popup(quiz, harness, "can-start")
             expect_popup_session(harness, connected=True, reading=False, can_toggle=True)
             close_popup(harness)
+
+            # An ordinary page with colored HTML buttons must complete the same capture path.
             another = context.new_page()
-            another.goto(quiz_url)
+            fixture_url = url.replace("127.0.0.1", "localhost") + "/button-quiz-fixture"
+            another.route(fixture_url, lambda route: route.fulfill(
+                content_type="text/html; charset=utf-8", body=button_quiz_html(marked=True)))
+            another.goto(fixture_url)
+            another.set_viewport_size({"width": 880, "height": 720})
             open_popup(another, harness, "can-start")
             press_action(harness, "start")
-            expect_reader(capture, "waiting")
-            expect_popup(harness, "waiting")
+            expect_reader(capture, "question")
+            expect_popup(harness, "question")
+            transcript = capture.locator("#readText")
+            for text in [BUTTON_TASK, *BUTTON_OPTIONS]:
+                expect(transcript).to_contain_text(text)
+            expect(transcript).not_to_contain_text("Скрытые данные варианта")
+            screenshot_popup(harness, screenshots, "button-question")
+
+            # A retained but disabled option is not a new, shorter question.
+            last_option = another.locator(".choices button").last
+            last_option.evaluate("button => { button.disabled = true; }")
+            expect_reader(capture, "partial")
+            expect_popup(harness, "partial")
+            expect(capture.locator("#readingTranscript")).to_be_hidden()
+            last_option.evaluate("button => { button.disabled = false; }")
+            expect_reader(capture, "question")
+            expect_popup(harness, "question")
+
             press_action(harness, "stop")
             expect_reader(capture, "stopped")
             expect_popup(harness, "can-start")
