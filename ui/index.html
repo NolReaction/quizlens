@@ -74,17 +74,18 @@
         <a class="button trial-button" data-demo-window href="/demo?lobby=1" target="quizlens-demo">Открыть пробный квиз ↗</a>
         <button type="button" class="button text-button" id="release" hidden>Отключить</button>
       </div>
-      <details class="capture-menu" id="tabReaderSetup">
+      <details class="capture-menu" id="tabReaderSetup" data-reading-switch-version="1.11.1">
         <summary>
-          <strong>Читать через расширение</strong>
+          <strong>Расширение QuizLens</strong>
           <span id="tabReaderStatus" data-state="checking" role="status">Проверяю связь</span>
           <span id="tabReaderHint">Ищу QuizLens в этом браузере…</span>
         </summary>
         <div class="menu-content">
           <div class="component-actions">
             <span id="tabReaderInstall"><button type="button" class="button" data-extension-folder hidden>Показать папку расширения</button></span>
-            <a class="button" href="/tab-reader-help.html" target="_blank" rel="noopener">Как подключить ↗</a>
+            <a class="button" id="tabReaderHelp" href="/tab-reader-help.html" target="_blank" rel="noopener">Как подключить ↗</a>
           </div>
+          <p class="hint" id="tabReaderVersion" hidden></p>
           <p class="hint folder-result" data-extension-status role="status" hidden></p>
         </div>
       </details>

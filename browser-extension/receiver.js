@@ -4,6 +4,7 @@
       !['/', '/index.html'].includes(location.pathname) || !document.querySelector('#sessionView #tabReaderStatus')) return false;
   if (globalThis.quizLensReceiverInstalled) return true;
   globalThis.quizLensReceiverInstalled = true;
+  const instance = crypto.randomUUID();
   let receiverKey;
   let generation = 0;
   function publish(message) {
@@ -12,18 +13,20 @@
   async function presence(first) {
     const initial = generation;
     try {
-      const state = await chrome.runtime.sendMessage({command:'presence', key:receiverKey, first});
+      const state = await chrome.runtime.sendMessage({command:'presence', key:receiverKey, first, instance});
       if (state?.type === 'presence' && generation === initial) publish(state);
     } catch { /* An extension reload or disable invalidates this isolated world. */ }
   }
   chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if (sender.id !== chrome.runtime.id || message?.to !== 'receiver') return;
+    if (message.type === 'identify') { reply({instance}); return; }
     if (message.type === 'available') { reply({ok:true}); return; }
     if (message.type === 'bound') receiverKey = message.key;
     if (!receiverKey || message.key !== receiverKey) return;
     if (message.type !== 'ping') {
       ++generation;
-      publish({type:message.type, frame:message.frame, sourceTitle:message.sourceTitle});
+      publish({type:message.type, version:message.version, restored:message.restored,
+        frame:message.frame, sourceTitle:message.sourceTitle});
       if (message.type === 'unbound') receiverKey = null;
     }
     reply({ok:true});
@@ -36,6 +39,7 @@
       catch { /* The extension may have been disabled while the page was open. */ }
     }
   });
-  presence(true);
+  if (document.readyState === 'complete') presence(true);
+  else window.addEventListener('load', () => presence(true), {once:true});
   return true;
 })();

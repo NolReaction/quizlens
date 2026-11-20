@@ -2,6 +2,8 @@
 
 const session = chrome.storage.session;
 const popup = chrome.runtime.getURL('popup.html');
+const version = chrome.runtime.getManifest().version;
+const reconnectWindow = 30000;
 const empty = () => ({receiver:null, source:null});
 const save = pair => session.set({pair});
 const localPage = url => {
@@ -11,6 +13,7 @@ const localPage = url => {
       ['/', '/index.html'].includes(u.pathname);
   } catch { return false; }
 };
+const sameCaptureOrigin = (receiver, url) => localPage(url) && new URL(url).origin === receiver.origin;
 function readablePage(url) {
   try {
     const u = new URL(url);
@@ -24,7 +27,7 @@ const sameDocument = (entry, sender) => entry && entry.tabId === sender.tab?.id 
 const matches = (entry, sender, key) => sameDocument(entry, sender) && entry.key === key;
 async function send(side, to, type, extra = {}) {
   const ok = await chrome.tabs.sendMessage(side.tabId,
-    {to, type, key:side.key, ...extra}, {documentId:side.documentId});
+    {to, type, key:side.key, version, ...extra}, {documentId:side.documentId});
   if (!ok?.ok) throw Error('Расширение потеряло связь с выбранной страницей.');
 }
 
@@ -33,6 +36,7 @@ const buttonMessages = {
   'can-bind':'Подключи эту вкладку QuizLens, чтобы принимать вопросы.',
   'need-connection':'Открой страницу «Захват» в QuizLens и нажми значок расширения.',
   bound:'QuizLens подключён. В квизе нажми на значок расширения и выбери «Читать вопросы».',
+  reconnecting:'Восстанавливаю связь со страницей захвата QuizLens.',
   'can-start':'Вопрос и видимые варианты из этой вкладки появятся в QuizLens.',
   unsupported:'Для чтения открой обычную страницу с вопросами или выбери окно в QuizLens.',
   waiting:'Чтение включено. Жду вопрос с вариантами.',
@@ -43,10 +47,14 @@ const buttonMessages = {
 function popupState(tab, pair, available, isCapture) {
   const receiverHere = pair.receiver?.tabId === tab.id;
   const sourceHere = pair.source?.tabId === tab.id;
+  const receiverRecovering = Boolean(pair.receiver?.reconnectingUntil);
   const reason = pair.source ? pair.source.reason || 'waiting' : null;
   let status;
   let command = null;
-  if (pair.source && (receiverHere || sourceHere)) { status = reason; command = 'stop'; }
+  if (receiverRecovering && (receiverHere || !isCapture)) {
+    status = 'reconnecting';
+    command = pair.source ? 'stop' : null;
+  } else if (pair.source && (receiverHere || sourceHere)) { status = reason; command = 'stop'; }
   else if (receiverHere) status = 'bound';
   else if (isCapture) { status = 'can-bind'; command = 'bind'; }
   else if (!readablePage(tab.url) || localPage(tab.url)) status = 'unsupported';
@@ -54,7 +62,7 @@ function popupState(tab, pair, available, isCapture) {
   else { status = 'can-start'; command = 'start'; }
   return {ok:true, command, label:commands[command], message:buttonMessages[status], status,
     here:receiverHere ? 'receiver' : sourceHere ? 'source' : isCapture ? 'capture' : 'other',
-    receiverConnected:Boolean(pair.receiver), reading:Boolean(pair.source), reason,
+    receiverConnected:Boolean(pair.receiver) && !receiverRecovering, receiverRecovering, reading:Boolean(pair.source), reason,
     sourceTitle:pair.source?.title || '', sourceTabId:pair.source?.tabId ?? null,
     receiverTabId:pair.receiver?.tabId ?? null, availableCaptureTabId:available?.tabId ?? null};
 }
@@ -81,7 +89,7 @@ async function stop(pair) {
     badge(source, '');
     await send(source, 'reader', 'stop').catch(() => {});
   }
-  if (pair.receiver) {
+  if (pair.receiver && !pair.receiver.reconnectingUntil) {
     badge(pair.receiver, '•', 'QuizLens · расширение подключено');
     await send(pair.receiver, 'receiver', 'stopped').catch(() => {});
   }
@@ -95,15 +103,45 @@ async function unbind(pair) {
   pair.receiver = null;
   await save(pair);
 }
+async function markReconnecting(pair) {
+  if (pair.receiver.reconnectingUntil) return;
+  pair.receiver.reconnectingUntil = Date.now() + reconnectWindow;
+  await save(pair);
+  for (const side of [pair.receiver, pair.source]) badge(side, '…', 'QuizLens · ' + buttonMessages.reconnecting);
+}
 async function validatePair(pair) {
   if (pair.receiver) {
     try { await send(pair.receiver, 'receiver', 'ping'); }
-    catch { await unbind(pair); return; }
+    catch { await markReconnecting(pair); }
   }
   if (pair.source) {
     try { await send(pair.source, 'reader', 'ping'); }
     catch { await stop(pair); }
   }
+}
+async function currentReceiver(sender, instance) {
+  if (typeof instance !== 'string' || !instance) return false;
+  try {
+    const current = await chrome.tabs.sendMessage(sender.tab.id, {to:'receiver', type:'identify'}, {frameId:0});
+    return current?.instance === instance;
+  } catch { return false; }
+}
+async function restoreReceiver(pair, sender) {
+  const old = pair.receiver;
+  pair.receiver = {tabId:old.tabId, origin:old.origin, documentId:sender.documentId, key:crypto.randomUUID()};
+  try { await send(pair.receiver, 'receiver', 'bound', {restored:true}); }
+  catch { pair.receiver = old; await markReconnecting(pair); return; }
+  await save(pair);
+  badge(pair.receiver, '•', 'QuizLens · расширение подключено');
+  if (!pair.source) return;
+  pair.source.reason = 'waiting';
+  try {
+    await send(pair.receiver, 'receiver', 'started', {sourceTitle:pair.source.title, restored:true});
+    // Ask the old source document for a fresh frame, even if the question never changed.
+    await send(pair.source, 'reader', 'start');
+    await save(pair);
+    showReading(pair);
+  } catch { await stop(pair); }
 }
 async function captureDocument(tabId) {
   try {
@@ -135,15 +173,15 @@ async function forPopup(command, tabId, pair, available) {
     const documentId = await captureDocument(tabId);
     if (!documentId) throw Error('В этой вкладке нет доступной страницы захвата QuizLens.');
     await unbind(pair);
-    pair.receiver = {tabId, documentId, key:crypto.randomUUID()};
+    pair.receiver = {tabId, documentId, origin:new URL(tab.url).origin, key:crypto.randomUUID()};
     await save(pair);
     try { await send(pair.receiver, 'receiver', 'bound'); }
     catch (error) { await unbind(pair); throw error; }
     badge(pair.receiver, '•', 'QuizLens · расширение подключено');
-  } else if (command === 'stop' && [pair.receiver?.tabId, pair.source?.tabId].includes(tabId)) {
+  } else if (command === 'stop') {
     await stop(pair);
   } else if (command === 'start') {
-    if (!pair.receiver || pair.receiver.tabId === tabId || !readablePage(tab.url) || localPage(tab.url)) {
+    if (!pair.receiver || pair.receiver.reconnectingUntil || pair.receiver.tabId === tabId || !readablePage(tab.url) || localPage(tab.url)) {
       throw Error('Подключи QuizLens и выбери отдельную вкладку с квизом.');
     }
     let injection;
@@ -176,19 +214,28 @@ async function handle(message, sender) {
   if (sender.id !== chrome.runtime.id || !message) return;
   const stored = await session.get(['pair','available']);
   const pair = stored.pair || empty();
+  if (pair.receiver?.reconnectingUntil && Date.now() >= pair.receiver.reconnectingUntil) await unbind(pair);
   if (sender.url === popup) return forPopup(message.command, message.tabId, pair, stored.available);
   if (message.command === 'presence' && sender.frameId === 0 && sender.tab?.id != null && sender.documentId && localPage(sender.url)) {
     if (!stored.available || (message.first && !sameDocument(stored.available, sender))) {
       await session.set({available:{tabId:sender.tab.id, documentId:sender.documentId}});
     }
-    const paired = Boolean(matches(pair.receiver, sender, message.key));
+    const receiver = pair.receiver;
+    let paired = Boolean(matches(receiver, sender, message.key));
+    if (receiver?.tabId === sender.tab.id && sameCaptureOrigin(receiver, sender.url) &&
+        (!sameDocument(receiver, sender) || (paired && receiver.reconnectingUntil)) &&
+        await currentReceiver(sender, message.instance)) {
+      await restoreReceiver(pair, sender);
+      paired = !pair.receiver.reconnectingUntil;
+    }
     const source = paired ? pair.source : null;
-    return {ok:true, type:'presence', version:chrome.runtime.getManifest().version,
+    return {ok:true, type:'presence', version,
       paired, reading:Boolean(source), sourceTitle:source?.title || '', reason:source ? source.reason || 'waiting' : null};
   }
   if (message.command === 'frame' && matches(pair.source, sender, message.key) && validateFrame(message.frame)) {
+    if (pair.receiver.reconnectingUntil) return {ok:true};
     try { await send(pair.receiver, 'receiver', 'frame', {frame:message.frame}); }
-    catch { await unbind(pair); return {ok:false}; }
+    catch { await markReconnecting(pair); return {ok:true}; }
     const reason = message.frame.texts.length ? 'question' : message.frame.reason;
     if (reason !== pair.source.reason) {
       pair.source.reason = reason;
@@ -212,14 +259,17 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   enqueue(() => handle(message,sender)).then(reply, error => reply({ok:false,error:error.message}));
   return true;
 });
-function resetTab(tabId) {
+function resetTab(tabId, removed, change = {}) {
   enqueue(async () => {
     const stored = await session.get(['pair','available']);
-    if (stored.available?.tabId === tabId) await session.remove('available');
+    if (stored.available?.tabId === tabId && (removed || (change.url && !localPage(change.url)))) await session.remove('available');
     const pair = stored.pair || empty();
-    if (pair.receiver?.tabId === tabId) await unbind(pair);
-    else if (pair.source?.tabId === tabId) await stop(pair);
+    if (pair.receiver?.tabId === tabId) {
+      if (removed || (change.url && !sameCaptureOrigin(pair.receiver, change.url))) await unbind(pair);
+    } else if (pair.source?.tabId === tabId && (removed || change.status === 'loading')) await stop(pair);
   });
 }
-chrome.tabs.onRemoved.addListener(resetTab);
-chrome.tabs.onUpdated.addListener((tabId, change) => { if (change.status === 'loading') resetTab(tabId); });
+chrome.tabs.onRemoved.addListener(tabId => resetTab(tabId, true));
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.status === 'loading' || change.url) resetTab(tabId, false, change);
+});

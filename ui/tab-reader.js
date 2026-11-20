@@ -6,20 +6,24 @@
   const hint = document.querySelector('#tabReaderHint');
   const install = document.querySelector('#tabReaderInstall');
   const stop = document.querySelector('#stopTabReader');
+  const version = document.querySelector('#tabReaderVersion');
+  const help = document.querySelector('#tabReaderHelp');
+  const minimumVersion = (document.querySelector('#tabReaderSetup')?.dataset.readingSwitchVersion || '').split('.').map(Number);
   if (!status || !hint || !install || !stop) return;
 
   const messages = {
     checking: ['Проверяю связь', 'Ищу QuizLens в этом браузере…'],
-    undetected: ['Нет связи', 'Если расширение уже установлено, включи его в этом браузере и обнови страницу. Для первой установки раскрой инструкцию.'],
+    undetected: ['Нет связи', 'На странице расширений браузера включи QuizLens и нажми ↻ на его карточке. Затем обнови эту вкладку.'],
     unsupported: ['Другой браузер', 'Для чтения через расширение открой QuizLens и квиз в Chrome или Edge на компьютере.'],
-    available: ['Готово к подключению', 'Нажми значок QuizLens в панели этого браузера и выбери «Подключить QuizLens».'],
-    paired: ['Подключено', 'Открой вкладку квиза в этом браузере и нажми в расширении «Читать вопросы».'],
+    available: ['Расширение найдено', 'Нажми значок QuizLens в браузере и выбери «Подключить QuizLens».'],
+    paired: ['На связи · чтение выключено', 'Перейди во вкладку квиза и включи «Чтение вкладки» в расширении.'],
+    restoring: ['Восстанавливаю чтение', 'Жду повторной передачи вопроса из расширения.'],
     waiting: ['Жду вопрос', 'Покажи вопрос с вариантами. Для квиза на картинке нажми «Выбрать окно».'],
     partial: ['Часть вопроса скрыта', 'Покажи вопрос и все варианты одновременно или используй захват окна.'],
     multiple: ['Несколько вопросов', 'Оставь на экране один вопрос или используй захват окна.'],
     question: ['Вопрос прочитан', 'Вопрос и варианты переданы в QuizLens.'],
-    stopped: ['Чтение остановлено', 'Чтобы продолжить, открой вкладку квиза и нажми в расширении «Читать вопросы».'],
-    disconnected: ['Связь потеряна', 'Проверь, включено ли расширение QuizLens. После обновления расширения перезагрузи эту страницу.']
+    stopped: ['Чтение выключено', 'Для продолжения открой вкладку квиза и включи чтение в расширении.'],
+    disconnected: ['Связь потеряна', 'Проверь, включён ли QuizLens на странице расширений браузера. Затем обнови вкладку захвата.']
   };
   let active = false;
   let awaitingFrame = false;
@@ -28,17 +32,39 @@
   let title = '';
   let deadline = null;
   let timer = null;
+  let legacy = false;
+
+  function extensionVersion(reported) {
+    const current = typeof reported === 'string' && /^\d+(\.\d+){1,3}$/.test(reported) ? reported : '';
+    const actual = current.split('.').map(Number);
+    const difference = minimumVersion.map((part, index) => (actual[index] || 0) - part).find(Boolean) || 0;
+    legacy = !current || difference < 0;
+    if (!version) return;
+    version.hidden = false;
+    const text = (current ? 'Версия расширения ' + current + '.' : 'Версия расширения не определилась.') +
+      (legacy ? ' Чтобы появился переключатель, обнови расширение по инструкции.' : '');
+    if (version.textContent !== text) version.textContent = text;
+  }
 
   function display(state) {
     const [label, instruction] = messages[state];
-    const reading = ['waiting', 'partial', 'multiple', 'question'].includes(state);
+    const reading = ['restoring', 'waiting', 'partial', 'multiple', 'question'].includes(state);
     const text = reading && title ? 'Вкладка «' + title + '». ' + instruction : instruction;
+    const needsSetup = ['checking', 'undetected', 'disconnected'].includes(state);
+    if (version && needsSetup) version.hidden = true;
     if (status.dataset.state !== state) {
       status.dataset.state = state;
       status.textContent = label;
     }
-    if (hint.textContent !== text) hint.textContent = text;
-    install.hidden = !['checking', 'undetected', 'disconnected'].includes(state);
+    const guidance = state === 'paired' && legacy
+      ? 'Во вкладке квиза нажми «Читать вопросы». Чтобы появился переключатель, обнови расширение по инструкции.'
+      : text;
+    if (hint.textContent !== guidance) hint.textContent = guidance;
+    if (help) {
+      const action = needsSetup || legacy ? 'Установка и обновление ↗' : 'Как пользоваться ↗';
+      if (help.textContent !== action) help.textContent = action;
+    }
+    install.hidden = !needsSetup && !legacy;
     stop.hidden = !reading;
   }
 
@@ -91,12 +117,13 @@
     if (data?.type === 'presence') {
       if (typeof data.paired !== 'boolean' || typeof data.reading !== 'boolean') return;
       cancelDeadline();
+      extensionVersion(data.version);
       modern = true;
       paired = data.paired;
       if (paired && data.reading) {
         if (typeof data.sourceTitle === 'string') title = data.sourceTitle.replace(/\s+/g, ' ').trim().slice(0, 100);
         awaitingFrame = !active;
-        display(readingState(data.reason));
+        display(awaitingFrame && data.reason === 'question' ? 'restoring' : readingState(data.reason));
       } else {
         const stopped = active || awaitingFrame || status.dataset.state === 'stopped';
         stopReading();
@@ -104,17 +131,19 @@
       }
     } else if (data?.type === 'bound') {
       cancelDeadline();
+      extensionVersion(data.version);
       paired = true;
       display('paired');
     } else if (data?.type === 'started') {
       cancelDeadline();
+      if (data.version) extensionVersion(data.version);
       paired = true;
       active = true;
       awaitingFrame = false;
       title = typeof data.sourceTitle === 'string' ? data.sourceTitle.slice(0, 100) : '';
       adapter.start();
       schedule();
-      display('waiting');
+      display(data.restored ? 'restoring' : 'waiting');
     } else if (data?.type === 'frame' && (active || awaitingFrame)) {
       const frame = data.frame;
       if (!Array.isArray(frame?.texts) || frame.texts.length > 9) return;

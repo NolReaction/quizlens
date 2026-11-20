@@ -13,17 +13,19 @@ function background() {
   const popup = 'chrome-extension://quizlens/popup.html';
   const store = {};
   const disconnected = new Set(), activations = [];
+  const documents = new Map();
   const listeners = {}, delivered = [], pages = new Map([
     [1, {id:1, active:true, url:'http://127.0.0.1:8765/'}],
     [2, {id:2, active:true, title:'Моя лекция', url:'https://learning.example/quiz'}],
     [3, {id:3, active:true, url:'https://other.example/form'}]
   ]);
+  const documentId = id => documents.get(id) || 'doc'+id;
   const hook = name => ({addListener:fn => { listeners[name] = fn; }});
   const chrome = {
     runtime:{id:'quizlens',getURL:() => popup,getManifest:() => ({version:'test'}),onMessage:hook('message')},
     scripting:{executeScript:async ({target,files}) => [{
       result:files[0]==='receiver.js' ? target.tabId===1 : undefined,
-      documentId:'doc'+target.tabId
+      documentId:documentId(target.tabId)
     }]},
     storage:{session:{get:async () => structuredClone(store),
       set:async value => Object.assign(store,structuredClone(value)),remove:async key => { delete store[key]; }}},
@@ -32,16 +34,21 @@ function background() {
     tabs:{get:async id=>pages.get(id),update:async id=>{ activations.push(id); return {windowId:5}; }, onUpdated:hook('update'),onRemoved:hook('remove'),
       sendMessage:async (id,msg,target) => {
         if (disconnected.has(id)) throw Error('Document closed');
-        assert.equal(target.documentId,'doc'+id);
+        if (msg.type === 'identify') {
+          assert.deepEqual({...target}, {frameId:0});
+          return {instance:'instance-'+documentId(id)};
+        }
+        if (target.documentId !== documentId(id)) throw Error('Previous document closed');
         delivered.push({id,...msg}); return {ok:true};
       }}
   };
   vm.runInNewContext(source('browser-extension/background.js'),{chrome,URL,crypto:webcrypto});
   const post=(payload,sender) => new Promise(done => listeners.message(payload,sender,done));
-  return {delivered,listeners,pages,disconnected,activations,get pair(){return store.pair;},
+  return {delivered,listeners,pages,documents,disconnected,activations,get pair(){return store.pair;},
     ui:(command,tabId) => post({command,tabId},{id:'quizlens',url:popup}),
-    from:(command,tabId,key,extra={}) => post({command,key,...extra},{id:'quizlens',url:pages.get(tabId).url,
-      tab:{id:tabId},frameId:0,documentId:'doc'+tabId})};
+    from:(command,tabId,key,extra={},senderDocument=documentId(tabId)) => post(
+      {command,key,instance:'instance-'+senderDocument,...extra},
+      {id:'quizlens',url:pages.get(tabId).url,tab:{id:tabId},frameId:0,documentId:senderDocument})};
 }
 
 test('extension can only bind a selected loopback QuizLens then track one chosen document',async()=>{
@@ -75,8 +82,63 @@ test('extension can only bind a selected loopback QuizLens then track one chosen
   assert.equal(app.pair.receiver,null);
 });
 
+test('capture reload restores the same live source and requests a fresh frame',async()=>{
+  const app=background();
+  await app.ui('bind',1);
+  const oldReceiverKey=app.pair.receiver.key;
+  app.listeners.update(1,{status:'loading'});
+  app.documents.set(1,'idle-reload');
+  const idle=await app.from('presence',1,undefined,{first:true});
+  assert.equal(idle.paired,true);
+  assert.equal(idle.reading,false);
+  assert.notEqual(app.pair.receiver.key,oldReceiverKey);
+
+  await app.ui('start',2);
+  const {key}=app.pair.source;
+  const frame={texts:['Accuracy?','99%','1%'],selectionMode:'single'};
+  await app.from('frame',2,key,{frame});
+  app.listeners.update(1,{status:'loading'});
+  app.documents.set(1,'active-reload');
+  app.disconnected.add(1);
+  assert.equal((await app.from('frame',2,key,{frame})).ok,true);
+  const recovering=await app.ui('inspect',2);
+  assert.deepEqual([recovering.status,recovering.receiverConnected,recovering.receiverRecovering,recovering.reading],
+    ['reconnecting',false,true,true]);
+  assert.equal((await app.ui('start',3)).ok,false);
+  app.disconnected.delete(1);
+
+  const active=await app.from('presence',1,undefined,{first:true});
+  assert.deepEqual([active.paired,active.reading,active.reason],[true,true,'waiting']);
+  assert.equal(app.pair.source.key,key);
+  assert.equal(app.pair.receiver.documentId,'active-reload');
+  assert.equal(app.delivered.filter(x=>x.to==='reader' && x.type==='start' && x.id===2).length,2);
+  assert.deepEqual(app.delivered.filter(x=>x.to==='receiver' && x.restored && x.id===1).map(x=>[x.type,x.version]),
+    [['bound','test'],['bound','test'],['started','test']]);
+
+  await app.from('frame',2,key,{frame});
+  assert.equal((await app.ui('inspect',2)).status,'question');
+  assert.equal((await app.from('presence',1,oldReceiverKey,{},'doc1')).paired,false);
+  assert.equal(app.pair.receiver.documentId,'active-reload');
+});
+
+test('another origin or tab cannot restore a bound receiver',async()=>{
+  const app=background();
+  await app.ui('bind',1);
+  app.pages.get(3).url='http://127.0.0.1:8765/';
+  assert.equal((await app.from('presence',3,undefined,{first:true})).paired,false);
+  assert.equal(app.pair.receiver.tabId,1);
+  app.pages.get(1).url='http://127.0.0.1:9876/';
+  app.documents.set(1,'different-local-server');
+  assert.equal((await app.from('presence',1,undefined,{first:true})).paired,false);
+  app.listeners.update(1,{status:'loading',url:app.pages.get(1).url});
+  await app.ui('inspect',2);
+  assert.equal(app.pair.receiver,null);
+});
+
 function capturePage(userAgent = 'Chrome') {
-  const events = {}, elements = {}, timers = new Map(), intervals = new Map(), calls = [];
+  const events = {}, elements = {
+    '#tabReaderSetup':{dataset:{readingSwitchVersion:'1.11.1'}}
+  }, timers = new Map(), intervals = new Map(), calls = [];
   let timerId = 0;
   const window = {
     addEventListener: (name, fn) => { events[name] = fn; },
@@ -102,7 +164,7 @@ function capturePage(userAgent = 'Chrome') {
   vm.runInNewContext(source('ui/tab-reader.js'), {window, document, location:{hostname:'127.0.0.1'}, navigator:{userAgent}, Event});
   const emit = data => events['quizlens-extension']({detail:JSON.stringify(data)});
   return {calls, elements, document, events, emit,
-    presence(details = {}) { emit({type:'presence', version:'1.11.0', paired:false, reading:false, ...details}); },
+    presence(details = {}) { emit({type:'presence', version:'1.11.1', paired:false, reading:false, ...details}); },
     expire() { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } },
     cycle() { for (const fn of intervals.values()) fn(); },
     get state() { return elements['#tabReaderStatus'].dataset.state; }
@@ -122,6 +184,28 @@ test('legacy receiver keeps a live binding without probes and ignores frames aft
   app.emit({type:'stopped'});
   assert.equal(app.state, 'stopped');
   assert.deepEqual(app.calls, ['start',['Какой?', 'A', 'B', 'single'],[undefined],'stop']);
+});
+
+test('old extension versions expose an update hint without blocking the existing buttons', () => {
+  const app = capturePage();
+  app.presence({version:'1.11.0', paired:true});
+  assert.equal(app.state, 'paired');
+  assert.match(app.elements['#tabReaderHint'].textContent, /обнови расширение/);
+  assert.match(app.elements['#tabReaderVersion'].textContent, /1\.11\.0/);
+  assert.equal(app.elements['#tabReaderInstall'].hidden, false);
+  app.presence({version:'1.11.1', paired:true});
+  assert.match(app.elements['#tabReaderHint'].textContent, /включи «Чтение вкладки»/);
+  assert.equal(app.elements['#tabReaderInstall'].hidden, true);
+});
+
+test('reloaded capture shows a restoring state until it receives a new frame', () => {
+  const app = capturePage();
+  app.emit({type:'bound', version:'1.11.1', restored:true});
+  app.emit({type:'started', version:'1.11.1', restored:true, sourceTitle:'Квиз'});
+  assert.equal(app.state, 'restoring');
+  app.emit({type:'frame', frame:{texts:['Какой?', 'A', 'B'], selectionMode:'single'}});
+  assert.equal(app.state, 'question');
+  assert.deepEqual(app.calls, ['start',['Какой?', 'A', 'B', 'single']]);
 });
 
 test('capture reports measured presence, detects disable, then recovers without starting OCR', () => {
@@ -211,8 +295,12 @@ test('popup and verified capture report the delivered frame without persisting i
   assert.equal((await app.ui('inspect',1)).status,'bound');
   app.disconnected.add(1);
   const lost = await app.ui('inspect',2);
-  assert.equal(lost.status,'need-connection');
-  assert.equal(lost.availableCaptureTabId,null);
+  assert.equal(lost.status,'reconnecting');
+  assert.equal(lost.receiverConnected,false);
+  app.listeners.remove(1);
+  const closed = await app.ui('inspect',2);
+  assert.equal(closed.status,'need-connection');
+  assert.equal(closed.availableCaptureTabId,null);
   assert.equal(app.pair.receiver,null);
 });
 

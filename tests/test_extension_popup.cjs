@@ -13,10 +13,13 @@ function popup(send) {
   const elements = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
-      dataset:{}, textContent:'', disabled:false, hidden:false,
-      toggleAttribute() {}, setAttribute() {}, removeAttribute() {},
+      dataset:{}, textContent:'', disabled:false, hidden:false, attributes:new Map(),
+      toggleAttribute() {},
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      removeAttribute(name) { this.attributes.delete(name); },
       addEventListener(name, callback) { this[name] = callback; },
-      querySelectorAll:() => ['action','focusCapture','focusSource'].map(element),
+      focus() { document.activeElement = this; },
     });
     return elements.get(id);
   }
@@ -24,7 +27,7 @@ function popup(send) {
   const document = {getElementById:element, body:element('body')};
   const chrome = {
     tabs:{query: async () => [{id:12, title:'Моя вкладка с квизом'}]},
-    runtime:{sendMessage: ({command,tabId}) => {
+    runtime:{getManifest: () => ({version:'1.11.1'}), sendMessage: ({command,tabId}) => {
       assert.equal(tabId,12);
       return send(command);
     }},
@@ -50,9 +53,14 @@ test('a late inspection cannot revert a successful start or the delivery notific
   });
   const {element} = ui;
   await settle();
-  assert.equal(element('action').dataset.command,'start');
+  const readingSwitch = element('readingSwitch');
+  assert.equal(element('extensionVersion').textContent,'v1.11.1');
+  assert.equal(element('receiverState').textContent,'Подключено');
+  assert.equal(readingSwitch.dataset.command,'start');
+  assert.equal(readingSwitch.getAttribute('aria-checked'),'false');
+  assert.equal(element('readingValue').textContent,'Выключено');
   ui.changed();
-  element('action').click();
+  readingSwitch.click();
   await settle();
   assert.equal(element('body').dataset.state,'waiting');
   assert.equal(element('focusCapture').hidden,false);
@@ -63,7 +71,9 @@ test('a late inspection cannot revert a successful start or the delivery notific
   await settle();
   assert.equal(element('body').dataset.state,'question');
   assert.equal(element('sourceTitle').textContent,'Метрики');
-  assert.equal(element('action').dataset.command,'stop');
+  assert.equal(readingSwitch.dataset.command,'stop');
+  assert.equal(readingSwitch.getAttribute('aria-checked'),'true');
+  assert.equal(element('readingValue').textContent,'Включено');
 });
 
 test('a failed connection offers a retry and clears stale routing controls', async () => {
@@ -79,7 +89,8 @@ test('a failed connection offers a retry and clears stale routing controls', asy
   await settle();
   assert.equal(element('body').dataset.state,'error');
   assert.equal(element('description').textContent,'Вкладка захвата закрыта.');
-  assert.equal(element('connection').hidden,true);
+  assert.equal(element('receiverState').textContent,'Нет ответа');
+  assert.equal(element('readingSwitch').disabled,true);
   assert.equal(element('action').dataset.command,'inspect');
   available = false;
   element('action').click();
@@ -112,4 +123,43 @@ test('opening or closing an unpaired capture tab updates the popup while it stay
   ui.changed('available');
   await settle();
   assert.equal(button.hidden,true);
+});
+
+test('switch shows only confirmed state while a user command runs', async () => {
+  let resolveStart;
+  let requests = 0;
+  const ui = popup(command => {
+    if (command === 'start') {
+      requests++;
+      return new Promise(resolve => { resolveStart = resolve; });
+    }
+    return ready;
+  });
+  await settle();
+  const readingSwitch = ui.element('readingSwitch');
+  readingSwitch.click();
+  readingSwitch.click();
+  await settle();
+  assert.equal(requests,1);
+  assert.equal(readingSwitch.getAttribute('aria-disabled'),'true');
+  assert.equal(readingSwitch.getAttribute('aria-checked'),'false');
+  assert.equal(ui.element('message').textContent,'Включаю чтение…');
+  resolveStart(waiting);
+  await settle();
+  assert.equal(readingSwitch.getAttribute('aria-disabled'),null);
+  assert.equal(readingSwitch.getAttribute('aria-checked'),'true');
+});
+
+test('reconnect preserves an on switch and shows that the app is loading', async () => {
+  const recovering = {...waiting, status:'reconnecting', receiverConnected:false, receiverRecovering:true, here:'source'};
+  const ui = popup(command => command === 'stop' ? {...recovering, command:null, reading:false} : recovering);
+  await settle();
+  const readingSwitch = ui.element('readingSwitch');
+  assert.equal(ui.element('receiverState').textContent,'Переподключение…');
+  assert.equal(readingSwitch.getAttribute('aria-checked'),'true');
+  assert.equal(ui.element('sourceTitle').textContent,'Метрики');
+  readingSwitch.click();
+  await settle();
+  assert.equal(readingSwitch.getAttribute('aria-checked'),'false');
+  assert.equal(ui.element('sourceRow').hidden,true);
 });

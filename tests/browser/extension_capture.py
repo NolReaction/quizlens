@@ -31,6 +31,23 @@ def expect_popup(harness, state):
     }""", arg=state, polling=100, timeout=12000)
 
 
+def expect_popup_session(harness, connected, reading, can_toggle):
+    harness.wait_for_function("""session => {
+      const doc = chrome.extension.getViews({type:'popup'})[0]?.document;
+      if (!doc) return false;
+      const control = doc.querySelector('#readingSwitch[role="switch"]');
+      const receiver = doc.querySelector('#receiverState');
+      const readingValue = doc.querySelector('#readingValue');
+      const version = doc.querySelector('#extensionVersion');
+      return control?.checkVisibility() && receiver?.checkVisibility() && readingValue?.checkVisibility() &&
+        version?.checkVisibility() && version.textContent === 'v' + chrome.runtime.getManifest().version &&
+        control.getAttribute('aria-checked') === String(session.reading) &&
+        control.disabled === !session.canToggle &&
+        receiver.textContent.trim() === (session.connected ? 'Подключено' : 'Не подключено') &&
+        readingValue.textContent.trim() === (session.reading ? 'Включено' : 'Выключено');
+    }""", arg={"connected": connected, "reading": reading, "canToggle": can_toggle}, timeout=8000)
+
+
 def close_popup(harness):
     subprocess.run(["xdotool", "key", "Escape"], check=True)
     harness.wait_for_function("() => !chrome.extension.getViews({type:'popup'}).length", timeout=5000)
@@ -39,7 +56,8 @@ def close_popup(harness):
 def press_action(harness, command):
     # The browser itself granted activeTab when the user opened the popup.
     harness.evaluate("""command => {
-      const button = chrome.extension.getViews({type:'popup'})[0].document.querySelector('#action');
+      const selector = ['start', 'stop'].includes(command) ? '#readingSwitch' : '#action';
+      const button = chrome.extension.getViews({type:'popup'})[0].document.querySelector(selector);
       if (button.dataset.command !== command || button.disabled) throw Error('Unexpected popup action: ' + button.textContent);
       button.click();
     }""", command)
@@ -90,12 +108,21 @@ def run(url, temp, screenshots):
             quiz.locator("#duration").select_option("0")
 
             open_popup(quiz, harness, "need-connection")
+            expect_popup_session(harness, connected=False, reading=False, can_toggle=False)
             close_popup(harness)
             open_popup(capture, harness, "can-bind")
             screenshot_popup(harness, screenshots, "connect")
             press_action(harness, "bind")
             expect_reader(capture, "paired")
             expect_popup(harness, "bound")
+            expect_popup_session(harness, connected=True, reading=False, can_toggle=False)
+            close_popup(harness)
+
+            # Refreshing the capture page reconnects the receiver without another toolbar action.
+            capture.reload()
+            expect_reader(capture, "paired")
+            open_popup(capture, harness, "bound")
+            expect_popup_session(harness, connected=True, reading=False, can_toggle=False)
             close_popup(harness)
 
             protected = context.new_page()
@@ -105,9 +132,11 @@ def run(url, temp, screenshots):
             protected.close()
 
             open_popup(quiz, harness, "can-start")
+            expect_popup_session(harness, connected=True, reading=False, can_toggle=True)
             press_action(harness, "start")
             expect_popup(harness, "waiting")
             expect_reader(capture, "waiting")
+            expect_popup_session(harness, connected=True, reading=True, can_toggle=True)
             screenshot_popup(harness, screenshots, "waiting")
             # Start the quiz without closing its toolbar popup. Both surfaces should update live.
             quiz.locator("#action").evaluate("button => button.click()")
@@ -126,6 +155,15 @@ def run(url, temp, screenshots):
                 .document.querySelector('#focusCapture').click()""")
             harness.wait_for_function("() => !chrome.extension.getViews({type:'popup'}).length")
             capture.wait_for_function("() => document.visibilityState === 'visible'")
+
+            # The source and its question do not change while the receiver reloads.
+            capture.reload()
+            expect_reader(capture, "question")
+            expect(capture.locator("#answer .answer-title")).to_have_text("Recall", timeout=15000)
+            open_popup(capture, harness, "question")
+            expect_popup_session(harness, connected=True, reading=True, can_toggle=True)
+            close_popup(harness)
+
             quiz.bring_to_front()
             quiz.locator("#options button:visible").first.click()
             quiz.locator("#action").click()
@@ -136,6 +174,10 @@ def run(url, temp, screenshots):
             quiz.reload()
             expect_reader(capture, "stopped")
             open_popup(capture, harness, "bound")
+            expect_popup_session(harness, connected=True, reading=False, can_toggle=False)
+            close_popup(harness)
+            open_popup(quiz, harness, "can-start")
+            expect_popup_session(harness, connected=True, reading=False, can_toggle=True)
             close_popup(harness)
             another = context.new_page()
             another.goto(quiz_url)
@@ -145,6 +187,9 @@ def run(url, temp, screenshots):
             expect_popup(harness, "waiting")
             press_action(harness, "stop")
             expect_reader(capture, "stopped")
+            expect_popup(harness, "can-start")
+            expect_popup_session(harness, connected=True, reading=False, can_toggle=True)
+            screenshot_popup(harness, screenshots, "paused")
             close_popup(harness)
             another.close()
 
@@ -162,7 +207,7 @@ def run(url, temp, screenshots):
             expect(capture.locator("#stopTabReader")).to_be_hidden()
             expect(capture.locator("#answer .answer-title")).not_to_have_text("Recall")
             check_dom_extraction(context.new_page())
-            print("Verified activeTab grants and real popup/capture states through pairing, reading, navigation, stopping and removal.")
+            print("Verified activeTab grants, popup switches, capture refresh while connected and reading, source navigation, and removal.")
         finally:
             context.close()
 

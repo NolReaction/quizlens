@@ -139,7 +139,7 @@
 #tabReaderStatus::before {
   content:""; flex:none; width:7px; height:7px; border-radius:50%; background:currentColor;
 }
-#tabReaderStatus:is([data-state="available"],[data-state="paired"],[data-state="waiting"],[data-state="question"]) {color:var(--mint)}
+#tabReaderStatus:is([data-state="available"],[data-state="paired"],[data-state="restoring"],[data-state="waiting"],[data-state="question"]) {color:var(--mint)}
 #tabReaderStatus:is([data-state="disconnected"],[data-state="partial"],[data-state="multiple"]) {color:var(--warn)}
 #tabReaderSetup .menu-content {padding-bottom:12px}
 #tabReaderInstall:has(button[hidden]) {display:none}

@@ -10,16 +10,34 @@
 <body data-state="loading" data-tone="idle">
   <header class="brand">
     <img class="brand-mark" src="icon-48.png" width="38" height="38" alt="">
-    <div><h1>Quiz<span>Lens</span></h1><p>Чтение вкладки</p></div>
+    <h1>Quiz<span>Lens</span></h1>
+    <span id="extensionVersion" class="version" title="Версия расширения" hidden></span>
   </header>
   <main>
+    <div class="controls">
+      <div class="connection" id="connection" role="status">
+        <span>Связь с QuizLens</span>
+        <strong id="receiverState" data-connection="checking">Проверяю…</strong>
+      </div>
+      <div class="reading">
+        <div>
+          <h2 id="readingLabel">Чтение вкладки</h2>
+          <p id="readingScope">Проверяю состояние</p>
+        </div>
+        <button type="button" id="readingSwitch" class="reading-switch" role="switch"
+          aria-checked="false" aria-labelledby="readingLabel" aria-describedby="readingScope" disabled>
+          <span id="readingValue">—</span>
+          <span class="switch-track" aria-hidden="true"></span>
+        </button>
+      </div>
+    </div>
     <section class="status-card" role="status" aria-live="polite" aria-atomic="true">
       <div class="status-heading"><i class="signal" aria-hidden="true"></i><h2 id="message" tabindex="-1">Проверяю связь…</h2></div>
       <p id="description">Определяю состояние текущей вкладки.</p>
     </section>
-    <dl id="connection" hidden>
-      <div><dt>Приложение</dt><dd id="receiverState"></dd></div>
-      <div id="sourceRow"><dt id="sourceLabel">Вкладка квиза</dt><dd id="sourceTitle" dir="auto"></dd></div>
+    <dl id="sourceRow" class="source" hidden>
+      <dt id="sourceLabel">Читаемая вкладка</dt>
+      <dd id="sourceTitle" dir="auto"></dd>
     </dl>
     <div id="actions" class="actions">
       <button id="action" type="button" class="button" disabled hidden></button>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QuizLens · чтение вкладки",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "minimum_chrome_version": "106",
   "description": "Передаёт видимый текст вопроса и вариантов в выбранное локальное окно QuizLens.",
   "permissions": ["activeTab", "scripting", "storage"],
