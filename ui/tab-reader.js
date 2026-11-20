@@ -36,6 +36,7 @@
 
   function extensionVersion(reported) {
     const current = typeof reported === 'string' && /^\d+(\.\d+){1,3}$/.test(reported) ? reported : '';
+    if (current) modern = true;
     const actual = current.split('.').map(Number);
     const difference = minimumVersion.map((part, index) => (actual[index] || 0) - part).find(Boolean) || 0;
     legacy = !current || difference < 0;

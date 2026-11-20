@@ -206,6 +206,11 @@ test('reloaded capture shows a restoring state until it receives a new frame', (
   app.emit({type:'frame', frame:{texts:['Какой?', 'A', 'B'], selectionMode:'single'}});
   assert.equal(app.state, 'question');
   assert.deepEqual(app.calls, ['start',['Какой?', 'A', 'B', 'single']]);
+  // The restored binding can arrive before the first presence response has been published.
+  app.cycle();
+  app.expire();
+  assert.equal(app.state, 'disconnected');
+  assert.equal(app.calls.at(-1), 'stop');
 });
 
 test('capture reports measured presence, detects disable, then recovers without starting OCR', () => {
