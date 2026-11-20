@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QuizLens — скачать для Mac и Windows</title>
-  <meta name="description" content="QuizLens читает вопрос в выбранном окне и находит ответ в твоих документах. Скачать для macOS и Windows, подобрать локальную модель и проверить на пробном квизе.">
+  <meta name="description" content="QuizLens читает вопрос из вкладки или с экрана и находит ответ в твоих документах. Скачать для macOS и Windows, подобрать локальную модель и проверить на пробном квизе.">
   <meta name="color-scheme" content="dark"><meta name="theme-color" content="#101b1c">
   <link rel="stylesheet" href="./download.css"><script defer src="./download.js"></script>
 </head>
@@ -12,15 +12,16 @@
 <header class="bar">
   <div class="wrap nav">
     <a href="./" class="brand" aria-label="QuizLens, начало страницы"><span class="lens" aria-hidden="true"></span>Quiz<span>Lens</span></a>
-    <nav aria-label="Навигация"><a href="#download">Скачать</a><a href="#start">Установка</a><a href="#model-setup">LM Studio</a></nav>
+    <nav aria-label="Навигация"><a href="#download">Скачать</a><a href="#start">Установка</a><a href="#components">Компоненты</a></nav>
   </div>
 </header>
 <main id="main">
   <section class="hero wrap" aria-labelledby="intro">
     <div class="intro">
       <h1 id="intro">Ответ на квиз <em>из твоей лекции.</em></h1>
-      <p>QuizLens для Mac и Windows читает вопрос с экрана, ищет ответ в выбранных документах и показывает цитату. Распознавание, поиск и работа модели проходят на твоём компьютере.</p>
-      <div class="hero-actions"><a id="hero-action" class="button primary" href="#download">Выбрать сборку <span aria-hidden="true">↓</span></a><a class="button secondary" href="#start">Как запустить</a></div>
+      <p>Подключи вкладку квиза или выбери окно. QuizLens прочитает вопрос, найдёт ответ в твоих документах и покажет цитату. Документы и обработка остаются на компьютере.</p>
+      <div class="hero-actions"><a id="hero-action" class="button primary" href="#download">Выбрать сборку <span aria-hidden="true">↓</span></a><a id="extension-download" class="button secondary" href="./QuizLens-Extension.zip" download>Скачать расширение ↓</a></div>
+      <div class="intro-links"><a href="#extension">Как подключить расширение</a><a href="#components">Установить компоненты</a></div>
     </div>
     <aside class="preview" aria-label="Пример работы QuizLens">
       <div class="preview-caption"><span class="caption-dot" aria-hidden="true"></span>Пример подсказки</div>
@@ -36,7 +37,7 @@
       <p id="share-message" class="feedback" role="status"></p>
       <div class="build-grid">
         <article class="build" id="mac-card" tabindex="-1"><div class="build-heading"><h3>macOS</h3><span class="match" hidden>Для этого устройства</span></div><p>macOS 14+ · Apple Silicon и Intel</p><p class="metadata" id="mac-info">Архив QuizLens-Mac.zip</p><a id="mac-download" aria-describedby="sign-info" class="button asset" href="https://github.com/NolReaction/quizlens/releases">Релизы для Mac <span aria-hidden="true">↗</span></a><p id="sign-info" class="fine">Сведения о подписи указаны в выпуске.</p></article>
-        <article class="build" id="windows-card"><div class="build-heading"><h3>Windows</h3><span class="match" hidden>Для этого устройства</span></div><p>Windows 10/11 · 64-разрядная система x64</p><p class="metadata" id="windows-info">Архив QuizLens-Windows.zip</p><a id="windows-download" class="button asset" href="https://github.com/NolReaction/quizlens/releases">Релизы для Windows <span aria-hidden="true">↗</span></a><p class="fine">Для чтения окна нужны Tesseract и компоненты OCR.</p></article>
+        <article class="build" id="windows-card"><div class="build-heading"><h3>Windows</h3><span class="match" hidden>Для этого устройства</span></div><p>Windows 10/11 · 64-разрядная система x64</p><p class="metadata" id="windows-info">Архив QuizLens-Windows.zip</p><a id="windows-download" class="button asset" href="https://github.com/NolReaction/quizlens/releases">Релизы для Windows <span aria-hidden="true">↗</span></a><p class="fine">Старт — файл Start.cmd. Для браузерного квиза подойдёт расширение.</p></article>
       </div>
       <div class="release-row"><p id="release-status" role="status">Публикации и контрольные суммы доступны в GitHub Releases.</p><a id="releases" href="https://github.com/NolReaction/quizlens/releases">Все выпуски ↗</a></div>
       <noscript><p>Открой список выпусков. В разделе Assets выбери архив своей системы. Подробная инструкция есть ниже.</p></noscript>
@@ -44,36 +45,33 @@
   </section>
 
   <section id="start" class="guide wrap section" aria-labelledby="guide-title">
-    <div class="section-heading"><div><h2 id="guide-title">Первый запуск</h2><p>Открой инструкцию для своей системы. Дальше работай в окне запущенного QuizLens.</p></div><a href="https://github.com/NolReaction/quizlens/blob/HEAD/docs/GUIDE.md" class="text-link">Полная инструкция ↗</a></div>
-    <div class="steps">
-      <details id="mac-install"><summary>Установить на Mac</summary><div>
-        <p>Распакуй ZIP, перенеси <strong>QuizLens.app</strong> в «Программы» и открой. Нужен Python версии 3.9 или новее. Если он ещё не установлен, скачай Python для macOS. <a href="https://www.python.org/downloads/macos/">Сайт Python ↗</a></p>
-        <p>Откроется локальная страница QuizLens в браузере. Её также можно открыть из меню QuizLens в строке меню. При первом захвате macOS может попросить доступ к записи экрана. Разрешение выдаётся приложению, которое выполняет захват.</p>
-      </div></details>
-      <details id="windows-install"><summary>Установить в Windows</summary><div>
-        <p>Распакуй ZIP через «Извлечь всё». Установи 64-разрядный Python 3.9+ и открой <strong>Start.cmd</strong>. Оставь консоль открытой во время работы. <a href="https://www.python.org/downloads/windows/">Python для Windows ↗</a></p>
-        <p>Для чтения экрана закрой QuizLens, установи Tesseract с языками <code>rus</code> и <code>eng</code>, затем запусти <strong>Install-OCR.cmd</strong>. После установки снова открой <strong>Start.cmd</strong>. Пошаговая инструкция есть в <strong>START-HERE.txt</strong> внутри архива.</p>
-      </div></details>
+    <div class="section-heading"><div><h2 id="guide-title">Первый запуск</h2></div><a href="https://github.com/NolReaction/quizlens/blob/HEAD/docs/GUIDE.md" class="text-link">Полная инструкция ↗</a></div>
+    <div class="build-grid">
+      <article id="windows-install" class="build install-card"><h3>Windows</h3><p>Установи Python 3.9+ x64, если его ещё нет. Распакуй архив через «Извлечь всё» и открой <strong>Start.cmd</strong>. Оставь консоль открытой во время работы.</p></article>
+      <article id="mac-install" class="build install-card"><h3>Mac</h3><p>Установи Python 3.9+, если его ещё нет. Распакуй ZIP, перенеси <strong>QuizLens.app</strong> в «Программы» и открой. Страница захвата появится в браузере.</p></article>
     </div>
-    <div class="first-run-grid">
-      <article id="model-setup" class="first-run-card">
-        <h3>Подключи локальную модель</h3>
-        <p>В QuizLens открой <strong>«Настроить LM Studio»</strong>. Сравни модели по объёму памяти, числу параметров и размеру контекста. Скачай подходящий файл GGUF.</p>
-        <p>Включи сервер в <strong>LM Studio → Developer</strong> или в <strong>Bionic → Settings → Local Model API</strong>. В QuizLens проверь соединение и нажми <strong>«Выбрать для захвата»</strong>.</p>
-        <a class="button secondary" href="https://lmstudio.ai/download">Скачать LM Studio или Bionic ↗</a>
-      </article>
-      <article class="first-run-card">
-        <h3>Добавь документы</h3>
-        <p>На странице «Захват» нажми <strong>«Добавить документ»</strong>. Подойдут конспект в PDF, слайды в PPTX или блокнот IPYNB.</p>
-        <p>Отметь файлы по теме занятия. Когда появится вопрос, QuizLens поищет в выбранных документах фрагмент, который подтверждает ответ.</p>
-      </article>
-      <article class="first-run-card">
-        <h3>Выбери окно квиза</h3>
-        <p>Для репетиции нажми <strong>«Открыть пробный квиз»</strong>. Вернись в QuizLens, нажми <strong>«Выбрать окно»</strong> рядом с предпросмотром и укажи появившийся квиз. Когда всё готово, нажми в нём <strong>«Начать»</strong>.</p>
-        <p>Для подготовки без таймера открой <strong>«Тренировка» → «Открыть карточки»</strong>. Готовые карточки доступны без модели.</p>
-      </article>
-    </div>
+    <p class="update-note">В QuizLens 1.9 и новее можно включить <a href="http://127.0.0.1:8765/#appUpdates">автообновление между занятиями</a> в запущенном приложении. Для перехода с 1.8 один раз запусти новую версию из архива.</p>
+    <article id="extension" class="extension-panel" aria-labelledby="extension-title">
+      <div><h3 id="extension-title">Читать квиз из вкладки</h3><p>Для Chrome и Edge. Подключение работает с QuizLens 1.8 и новее. Если приложение уже запущено, нажми в нём «Показать папку расширения». Эту папку можно сразу выбрать в браузере.</p>
+        <a id="setup-extension-download" class="button asset" href="./QuizLens-Extension.zip" download>Скачать расширение ZIP ↓</a></div>
+      <ol>
+        <li>Если скачал отдельный ZIP, распакуй его в постоянную папку. Открой <code>chrome://extensions</code> или <code>edge://extensions</code>.</li>
+        <li>Включи <strong>«Режим разработчика»</strong>, нажми <strong>«Загрузить распакованное расширение»</strong> и выбери папку <code>browser-extension</code> с файлом <code>manifest.json</code>.</li>
+        <li>В QuizLens нажми значок расширения → <strong>«Подключить QuizLens»</strong>. Затем во вкладке квиза нажми тот же значок → <strong>«Читать вопросы»</strong>.</li>
+      </ol>
+    </article>
   </section>
+  <section id="components" class="components section" aria-labelledby="components-title"><div class="wrap">
+    <div class="section-heading"><div><h2 id="components-title">Компоненты для твоего режима</h2><p>Для запуска нужен Python. Остальное зависит от того, как ты читаешь вопросы и получаешь ответы.</p></div></div>
+    <div class="first-run-grid">
+      <article class="first-run-card"><h3>Python</h3><p>Запускает QuizLens на компьютере. Если подходящий Python уже есть, можно сразу открыть приложение.</p>
+        <div class="component-actions"><a class="button secondary" href="https://www.python.org/downloads/windows/">Python для Windows ↗</a><a class="button secondary" href="https://www.python.org/downloads/macos/">Python для Mac ↗</a></div></article>
+      <article id="model-setup" class="first-run-card"><h3>LM Studio</h3><p>Нужен для ответов локальной модели по твоим документам. Загрузи модель, включи <strong>Model Server → Status</strong> и нажми в QuizLens <strong>«Проверить подключение»</strong>.</p>
+        <div class="component-actions"><a class="button secondary" href="https://lmstudio.ai/download">Скачать LM Studio ↗</a></div><p class="fine">Уже пользуешься Bionic? Включи Settings → Local Model API.</p></article>
+      <article id="windows-ocr" class="first-run-card"><h3>Распознавание окна</h3><p>На Windows запусти QuizLens и нажми «Установить OCR». Приложение подготовит Tesseract и языки. На Mac распознавание встроено в систему.</p>
+        <div class="component-actions"><a class="button secondary" href="http://127.0.0.1:8765/#ocrComponent">Открыть установку в QuizLens ↗</a></div><a class="text-link" href="https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe">Скачать Tesseract вручную ↓</a></article>
+    </div>
+  </div></section>
 </main>
 <footer class="wrap foot"><span>QuizLens</span><a href="https://github.com/NolReaction/quizlens">Исходный код на GitHub ↗</a></footer>
 </body>
