@@ -72,6 +72,17 @@ class AutoLayoutTests(unittest.TestCase):
             result = detect_layout([question, *options], aspect=928/790)
             self.assertEqual(result['texts'][2], '24%')
 
+    def test_damaged_progress_counter_cannot_join_wrapped_question(self):
+        title = part("Метрики в аналитике", .12, .1, .45)
+        counter = part("Вопрос 4 изб", .12, .133, .20)
+        intro = part("Магазин посетили 200 человек. Купили 8.", .12, .166, .48)
+        prompt = part("Какова конверсия посетителей?", .12, .199, .44)
+        options = [part(f"{i}) {answer}", .12, .34 + i * .08, .22)
+                   for i, answer in enumerate(("2%", "4%", "8%", "16%"), 1)]
+        result = detect_layout([title, counter, intro, prompt, *options])
+        self.assertEqual(result['texts'][0], f"{intro['text']} {prompt['text']}")
+        self.assertGreater(result['regions'][0]['y'], counter['y'] + .8 * counter['h'])
+
     def test_supplies_wrapped_question_with_article_and_numbers(self):
         parts=[part('A store had 200 visitors. Eight people bought',.12,.20,.48),
                part('something. What was the conversion rate?',.12,.235,.43)]

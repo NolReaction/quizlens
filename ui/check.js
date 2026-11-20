@@ -41,11 +41,14 @@ document.addEventListener('visibilitychange', refreshOcrStatus);
 function updateControls() {
   const busy = running || loadingModels;
   el('test').disabled = busy;
-  el('testModel').disabled = busy || !el('chatModel').value;
+  const metrics = el('questionSet').value === 'metrics';
+  const checkAnswers = Boolean(el('chatModel').value) || metrics;
+  el('testModel').disabled = busy || !checkAnswers;
+  el('testModel').textContent = metrics ? 'Проверить расчёты по тексту' : 'Проверить только модель';
   el('refreshModels').disabled = busy;
   el('chatModel').disabled = busy;
   el('questionSet').disabled = running;
-  el('test').textContent = el('chatModel').value ? 'Проверить OCR и ответ' : 'Проверить OCR';
+  el('test').textContent = checkAnswers ? 'Проверить OCR и ответ' : 'Проверить OCR';
 }
 
 async function loadModels() {
@@ -57,11 +60,11 @@ async function loadModels() {
   try {
     const data = await request('/api/models');
     models = data.models;
-    el('modelMessage').textContent = models.length ? '' : 'Загрузи модель в LM Studio и нажми «Обновить», чтобы проверить ответы.';
+    el('modelMessage').textContent = models.length ? '' : 'Расчёты в наборе «Проценты и метрики» можно проверить без модели. Для остальных наборов загрузи модель в LM Studio и нажми «Обновить».';
   } catch (error) {
     el('modelMessage').textContent = error.message + ' Проверка OCR доступна отдельно.';
   } finally {
-    select.replaceChildren(new Option('Только OCR', ''));
+    select.replaceChildren(new Option('Без локальной модели', ''));
     models.forEach(name => select.add(new Option(name, name)));
     select.value = models.includes(selected) ? selected : (models[0] || '');
     loadingModels = false;
@@ -206,7 +209,9 @@ function shuffleChoices(card) {
 async function runCheck(withOCR) {
   if (running) return;
   const model = el('chatModel').value;
-  if (!withOCR && !model) {
+  const selection = el('questionSet').value;
+  const checkAnswers = Boolean(model) || selection === 'metrics';
+  if (!withOCR && !checkAnswers) {
     el('message').textContent = 'Выбери модель для ответа.';
     return;
   }
@@ -218,18 +223,19 @@ async function runCheck(withOCR) {
   try {
     const [bank, library] = await Promise.all([
       request('/check-questions.json'),
-      model ? request('/api/lectures') : Promise.resolve({lectures: []})
+      checkAnswers ? request('/api/lectures') : Promise.resolve({lectures: []})
     ]);
-    const selection = el('questionSet').value;
-    const items = ['challenge', 'multiple'].includes(selection) ? bank[selection]?.map(shuffleChoices) : bank.items;
+    const items = selection === 'basic' ? bank.items : bank[selection]?.map(shuffleChoices);
     if (!Array.isArray(items) || !items.length) throw Error('В проверочном наборе нет вопросов.');
-    const notebook = library.lectures.find(item => item.id === bank.lectureId);
-    if (model && !notebook) throw Error('Не удалось найти встроенную демолекцию. Распакуй полный архив приложения и запусти его снова.');
+    const notebook = library.lectures.find(item => selection === 'metrics'
+      ? item.builtIn && item.name === 'analytics-demo.txt' : item.id === bank.lectureId);
+    if (checkAnswers && !notebook) throw Error('Не удалось найти встроенную демолекцию. Распакуй полный архив приложения и запусти его снова.');
 
     let ocrCompleted = 0, exactCount = 0, typographyCount = 0, solved = 0, correct = 0;
     const ocrTimes = [];
     let ocrFailure = '', modelFailure = '';
-    el('message').textContent = model ? 'Модель для проверки — ' + model : 'Проверяю распознавание текста.';
+    if (model) el('message').textContent = 'Модель для проверки — ' + model;
+    else el('message').textContent = checkAnswers ? 'Проверяю расчёты по демолекции.' : 'Проверяю распознавание текста.';
     for (const [index, card] of items.entries()) {
       const row = rowFor(card);
       const prefix = 'Вопрос ' + (index + 1) + ' из ' + items.length + ' · ';
@@ -246,7 +252,7 @@ async function runCheck(withOCR) {
         if (read.error || !Array.isArray(texts) || texts.length !== original.length || texts.some(t => typeof t !== 'string')) {
           ocrFailure = read.error || 'Некорректный ответ службы OCR.';
           detail(row, 'Ошибка OCR за ' + seconds(ocrMs) + '. ' + ocrFailure, 'warn');
-          if (model) detail(row, 'Поиск и ответ для этого вопроса пропущены.');
+          if (checkAnswers) detail(row, 'Поиск и ответ для этого вопроса пропущены.');
           break;
         }
         ocrCompleted++;
@@ -270,17 +276,17 @@ async function runCheck(withOCR) {
         detail(row, stageLabel + ' · ' + seconds(ocrMs) + ' · ' + verdict, exact ? 'ok' : (warning ? 'warn' : ''));
         differences.forEach(field => showChangedField(row, field.index, field.expected, field.read));
         if (texts.some(text => !text.trim())) {
-          if (model) detail(row, 'Поиск и ответ пропущены. Не все области распознаны.', 'warn');
+          if (checkAnswers) detail(row, 'Поиск и ответ пропущены. Не все области распознаны.', 'warn');
           continue;
         }
       }
 
-      if (!model) continue;
+      if (!checkAnswers) continue;
       if (modelFailure) {
         detail(row, 'Поиск и ответ пропущены после ошибки запроса.');
         continue;
       }
-      const result = await timeStage(prefix + 'поиск по лекции и ответ модели', () =>
+      const result = await timeStage(prefix + 'поиск по лекции и проверка ответа', () =>
         request('/api/solve', {question: texts[0], options: texts.slice(1), model, lectureIds: [notebook.id], channel: 'check'}));
       if (result.error) {
         modelFailure = result.error;
@@ -296,6 +302,8 @@ async function runCheck(withOCR) {
       const selected = choices.length > 1 ? 'варианты ' + choices.join(', ') : choices.length ? 'вариант ' + choices[0] : 'нет подтверждённого варианта';
       const verdict = selected + ' / ожидается ' + expected.join(', ');
       detail(row, 'Поиск и ответ · ' + seconds(result.elapsed) + ' · ' + verdict, ok ? 'ok' : 'warn');
+      const verification = result.value.verification;
+      if (verification?.kind === 'calculation') detail(row, verification.equation);
       if (selection === 'multiple' && choices.length && !ok) {
         const missed = expected.filter(n => !choices.includes(n));
         const extra = choices.filter(n => !expected.includes(n));
@@ -316,7 +324,7 @@ async function runCheck(withOCR) {
       if (withOCR) detail(row, 'OCR, поиск и ответ вместе · ' + seconds(ocrMs + result.elapsed));
       if (!ok) {
         if (result.value.detail) detail(row, result.value.detail);
-        detail(row, 'Демолекция «' + notebook.name + '», ячейка ' + card.cell + '.');
+        detail(row, notebook.name + (card.cell ? ' · ячейка ' + card.cell : ''));
       }
     }
     const summary = [];
@@ -329,11 +337,11 @@ async function runCheck(withOCR) {
         summary.push('Первый вызов OCR занял больше времени. Перед занятием запусти проверку заранее и оставь QuizLens открытым.');
       }
     } else summary.push('Проверка по готовому тексту.');
-    if (model) {
+    if (checkAnswers) {
       summary.push('Поиск и ответ завершены для ' + solved + ' из ' + items.length + ' вопросов.');
       if (solved) summary.push((selection === 'multiple' ? 'Полностью совпавших наборов — ' : 'Верных вариантов — ') + correct + ' из ' + solved + '.');
     }
-    if (ocrFailure) summary.push(model ? 'После ошибки OCR доступна отдельная проверка модели.' : 'После ошибки OCR дальнейшее распознавание остановлено.');
+    if (ocrFailure) summary.push(checkAnswers ? 'После ошибки OCR доступна отдельная проверка по тексту.' : 'После ошибки OCR дальнейшее распознавание остановлено.');
     if (modelFailure) summary.push('После ошибки повторные запросы модели остановлены.');
     el('message').textContent = summary.join(' ');
   } catch (error) {
@@ -347,6 +355,7 @@ async function runCheck(withOCR) {
 el('test').onclick = () => runCheck(true);
 el('testModel').onclick = () => runCheck(false);
 el('chatModel').onchange = updateControls;
+el('questionSet').onchange = updateControls;
 async function configure(enabled) {
   const model=enabled?el('embedding').value.trim():'';
   if(enabled && !model){el('embeddingMessage').textContent='Введи идентификатор модели.';return;}

@@ -18,10 +18,14 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
-from decimal import Decimal
+from functools import cached_property
 from html.parser import HTMLParser
 from itertools import islice
 from pathlib import Path
+
+import numeric_evidence
+
+from ocr_terms import OCRVocabulary, latin_visual_key
 
 LOCAL_API = "http://127.0.0.1:1234/v1"
 MAX_FILE_BYTES = 256 * 1024 * 1024
@@ -391,6 +395,10 @@ class LectureIndex:
         self.average = max(1, sum(self.lengths) / max(1, len(self.lengths)))
         self.latin_acronyms.difference_update(ambiguous_acronyms)
 
+    @cached_property
+    def ocr_vocabulary(self):
+        return OCRVocabulary(self.sections)
+
     def normalize_ocr_text(self, text):
         # Two explicitly contrasted spellings in the same field may be the subject of a question.
         spellings = collections.defaultdict(set)
@@ -433,11 +441,52 @@ class LectureIndex:
         eligible = (i for i in best if accept is None or accept(self.sections[i]))
         return [dict(self.sections[i], id=f"S{i + 1}", score=round(scores[i], 4)) for i in islice(eligible, max(0, limit))]
 
+    def _ocr_card_matches(self, question, choices, selection_mode):
+        """Accept one documented OCR substitution inside an otherwise literal card."""
+        words = list(re.finditer(r"\b[^\W\d_]+\b", question))
+        if not self.cards or len(words) < 4:
+            return []
+        matches = []
+        for word in words:
+            observed = word.group()
+            if len(observed) < 5 or _NEGATIVE.fullmatch(observed):
+                continue
+            # A quoted spelling or an identifier can itself be the subject of the quiz.
+            adjacent = question[max(0, word.start() - 1):word.start()] + question[word.end():word.end() + 1]
+            if any(c in adjacent for c in "`'\"«»“”‘’"):
+                continue
+            expected = self.ocr_vocabulary.candidate(observed)
+            if not expected or _NEGATIVE.fullmatch(expected):
+                continue
+            # The vocabulary also proposes arbitrary single edits for a visual
+            # re-read. Without those pixels, only use plausible glyph confusions.
+            shapes = latin_visual_key(observed)
+            if shapes != expected:
+                differences = [{a, b} for a, b in zip(shapes, expected) if a != b]
+                if len(shapes) != len(expected) or len(differences) != 1:
+                    continue
+                if not any(differences[0].issubset(group) for group in ("iun", "ijlt", "ce", "ao")):
+                    continue
+            # Substitute only this word. Every other character (including
+            # digits, units, comparisons and word order) stays in the lookup.
+            repaired = question[:word.start()] + expected + question[word.end():]
+            for card_id in self.cards.get(repaired, ()):
+                card = self.sections[card_id]
+                if (_card_answers(card, selection_mode) and card.get("options")
+                        and {_exact(v) for v in card["options"]} == choices.keys()):
+                    matches.append(card_id)
+        return matches
+
     def exact_answer(self, question, options, selection_mode="single", expected_count=None):
-        matches = self.cards.get(_exact(question, question=True), [])
+        question_key = _exact(question, question=True)
+        matches = self.cards.get(question_key, [])
         positions = {_exact(option): i for i, option in enumerate(options, 1)}
         if len(positions) != len(options):
             return None
+        kind = "exact"
+        if not matches:
+            matches = self._ocr_card_matches(question_key, positions, selection_mode)
+            kind = "ocr_card"
         candidates = []
         unreadable = None
         for i in matches:
@@ -469,12 +518,16 @@ class LectureIndex:
         row, answers = candidates[0]
         if len(answer_sets) != 1:
             return dict(_unknown([row]), detail="Карточки с таким вопросом дают разные ответы.")
+        if kind == "ocr_card" and len({_exact(card["question"], question=True) for card, _ in candidates}) != 1:
+            return dict(_unknown([row]), detail="После распознавания подходят несколько разных вопросов из карточек.")
         if not all(_exact(v) in positions for v in answers):
             return None
         if expected_count is not None and len(answers) != expected_count:
             return dict(_unknown([row]), detail="Количество ответов в карточке расходится с условием вопроса.")
         items = [{"choice": positions[_exact(v)], "source": _source(row), "quote": v} for v in answers]
-        result = _confirmed(items, "exact")
+        result = _confirmed(items, kind)
+        if kind == "ocr_card":
+            result["matchedQuestion"] = row["question"]
         if row.get("explanation"):
             result["cardExplanation"] = row["explanation"]
         return result
@@ -753,7 +806,7 @@ def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, se
         return _unknown([])
     exact = index.exact_answer(question, options, selection_mode, expected_count)
     if exact:
-        return exact
+        return _checked_numeric_card(exact, question, options, index)
     original = [question, *options]
     fields = index.normalize_ocr_fields(original)
     question, *options = fields
@@ -762,47 +815,75 @@ def solve(question, options, index, model="", base_url=LOCAL_API, timeout=10, se
     if fields != original and all(index.normalize_ocr_text(value) == value for value in options):
         exact = index.exact_answer(question, options, selection_mode, expected_count)
         if exact:
-            return exact
+            return _checked_numeric_card(exact, question, options, index)
     current_options = {_exact(value) for value in options}
     hits = index.search(question, options, accept=lambda row: _compatible_evidence(
         row, question, current_options, selection_mode, expected_count))
-    if not model or not hits:
+    percentages = [numeric_evidence.percentage(option) for option in options]
+    percentage_choices = selection_mode == "single" and None not in percentages
+    numeric_question = numeric_evidence.without_quiz_header(question, index.sections) if percentage_choices else question
+    if percentage_choices and numeric_evidence.unreadable_metric(numeric_question):
+        return dict(_unknown(hits), detail="Название метрики могло исказиться при распознавании. Перепроверь формулировку вопроса.")
+    ratio = numeric_evidence.question_ratio(numeric_question) if percentage_choices else None
+    if not hits or (not model and not ratio):
         return _unknown(hits)
     evidence = evidence_passages(hits, question, options)
-    if not evidence:
+    if ratio:
+        matching = [i for i, value in enumerate(percentages, 1) if ratio.accepts(value)]
+        if ratio.negated and len(matching) != 1:
+            return dict(_unknown(hits), detail="Вопрос требует один ответ, но условие об отличии от рассчитанного процента не даёт единственного варианта.")
+        verified = _calculated_answer(ratio, options, matching, evidence)
+        if verified:
+            return verified
+    if not evidence or not model:
         return _unknown(hits)
     messages = quiz_messages(model, question, options, evidence, selection_mode, expected_count)
     limit = quiz_output_limit(selection_mode, expected_count or len(options))
     completion = _ask_model(base_url, model, messages, limit, timeout)
     result = _quiz_result(_completion(completion), evidence, hits, options, selection_mode, expected_count)
-    if selection_mode == "single" and result["choice"]:
+    if percentage_choices and result["choice"]:
         selected = options[result["choice"] - 1]
-        if _contradicts_conversion(question, selected, result["quote"]):
+        inconsistent = (result["choice"] not in matching if ratio else
+                        not _NEGATIVE.search(numeric_question) and numeric_evidence.contradicts_worked_ratio(numeric_question, selected, result["quote"]))
+        if inconsistent:
             result = dict(_unknown([]), kind="retrieval", source=result["source"], quote=result["quote"],
-                          detail="Процент в выбранном ответе расходится с расчётом в цитате. Проверь цифры в распознанных вариантах.")
+                          detail="Выбранный процент расходится с проверяемым расчётом. Перепроверь вопрос и варианты.")
     return {**result, "tokenUsage": _quiz_usage(completion, messages)}
 
 
-# Check a directly cited worked conversion, only when both example counts match the question.
-# A different worked example can legitimately support a new answer via the same formula.
-_CONVERSION = re.compile(r"\b(?:конверси\w*|conversion)\b", re.I)
-_CONVERSION_RESULT = re.compile(
-    r"\b(?:конверсия|conversion(?: rate)?)\s*(?:равна|составляет|is|equals|=|:)\s*"
-    r"(\d+)\s*/\s*(\d+)\s*[×*·]\s*100\s*%?\s*=\s*(\d+(?:[.,]\d+)?)\s*%", re.I)
+def _checked_numeric_card(card, question, options, index):
+    choice = card["choice"]
+    if not choice or any(numeric_evidence.percentage(value) is None for value in options):
+        return card
+    parsed = numeric_evidence.question_ratio(card.get("matchedQuestion", question))
+    if not parsed or parsed.accepts(numeric_evidence.percentage(options[choice - 1])):
+        return card
+    # An authored key can be wrong. Require independent lecture evidence before
+    # flagging it; keep ordinary card-only decks and explicit user corrections usable.
+    hits = index.search(question, options, accept=lambda row: "question" not in row)
+    support = numeric_evidence.check_evidence(parsed, evidence_passages(hits, question, options))
+    if support:
+        row, quote, _ = support
+        return dict(_unknown([row]), quote=quote, detail="Ответ из карточки расходится с расчётом по лекции. Проверь ключ карточки и условие.")
+    return card
 
 
-def _contradicts_conversion(question, selected, quote):
-    selected = _exact(selected)
-    if not (re.fullmatch(r"\d+(?:[.,]\d+)?%", selected) and _CONVERSION.search(question)) or _NEGATIVE.search(question):
-        return False
-    equations = _CONVERSION_RESULT.findall(quote)
-    if len(equations) != 1:
-        return False
-    buyers, visitors, percent = equations[0]
-    counts = sorted(n.strip() for n in _NUMBER.findall(question))
-    if counts != sorted([buyers, visitors]):
-        return False
-    return Decimal(selected[:-1].replace(",", ".")) != Decimal(percent.replace(",", "."))
+def _calculated_answer(ratio, options, matching, evidence):
+    support = numeric_evidence.check_evidence(ratio, evidence)
+    if not support:
+        return None
+    row, excerpt, conflict = support
+    item = {"source": _source(row), "quote": excerpt}
+    if conflict or len(matching) != 1:
+        detail = ("В лекции процент расходится с указанной дробью." if conflict else
+                  "Расчёт расходится с вариантами: нужен ровно один подходящий процент. Перепроверь распознанные цифры.")
+        return dict(_unknown([]), **item, kind="retrieval", detail=detail)
+    choice = matching[0]
+    outcome = f"{ratio.percent}%" if ratio.negated else options[choice - 1].strip()
+    result = _confirmed([dict(item, choice=choice)], "calculation")
+    result["verification"] = {"kind": "calculation",
+                              "equation": f"{ratio.numerator} / {ratio.denominator} × 100 = {outcome}"}
+    return result
 
 
 def quiz_output_limit(selection_mode, answer_count):
@@ -875,6 +956,8 @@ def explain_option(question, options, index, model, option, *, base_url=LOCAL_AP
     question, *options = index.normalize_ocr_fields([question, *options])
     target = options[option - 1]
     card = index.exact_answer(question, options, selection_mode, expected_count)
+    if card:
+        card = _checked_numeric_card(card, question, options, index)
     if card and not card["choices"]:
         return {**fallback, "explanation": card["detail"]}
     # A stored key can establish which boxes were correct. Only an authored

@@ -239,6 +239,7 @@ function clearResult() {
   resultKey = "";
   lastFields = null;
   el("review").hidden = true;
+  el("answer-proof").hidden = true;
   ["answer", "evidence", "state", "current-question"].forEach(id => { el(id).textContent = ""; });
   el("options").replaceChildren();
 }
@@ -256,6 +257,11 @@ function present(data) {
     && (data.selectionMode !== "multiple" || choices.every(choice =>
       answer.evidence?.some(item => item.choice === choice && item.excerpt && item.source)));
   const confirmed = valid ? choices : [];
+  const proof = confirmed.length ? answerProof(answer, options) : {};
+  const proofLine = el("answer-proof");
+  proofLine.hidden = !proof.note;
+  proofLine.textContent = proof.note || "";
+  proofLine.className = proof.tentative ? "problem-text" : "answer-text";
   lastFields = data.question && validFields(options.length + 1) ? {question:data.question,options} : null;
   el("review").hidden = !answer.journalId;
   if (answer.journalId) el("review").href = "/journal#" + encodeURIComponent(answer.journalId);
@@ -266,15 +272,18 @@ function present(data) {
   }));
   const modeLabel = data.selectionMode === "multiple"
     ? (data.expectedCount ? "Выбрать " + data.expectedCount : "Множественный выбор") : "";
-  const timing = confirmed.length ? "Ответ за " + data.elapsed + " с" : data.message || answer.detail;
+  const timing = confirmed.length ? "Ответ за " + data.elapsed + " с" : answer.detail || data.message;
   el("state").textContent = [modeLabel, timing, formatQuizTokenUsage(answer.tokenUsage), answer.journalWarning].filter(Boolean).join(" · ");
-  const evidence = answer.evidence || (confirmed.length === 1 ? [{ ...answer, choice: confirmed[0] }] : []);
-  el("evidence").replaceChildren(...evidence.filter(proof =>
-    confirmed.includes(proof.choice) && (proof.source || proof.excerpt)).map(proof => {
+  let evidence = (answer.evidence || []).filter(item => confirmed.includes(item.choice));
+  if (!evidence.length && (answer.source || answer.excerpt)) {
+    evidence = [{...answer, choice:confirmed.length === 1 ? confirmed[0] : null}];
+  }
+  el("evidence").replaceChildren(...evidence.filter(item => item.source || item.excerpt).map(proof => {
     const details = document.createElement("details");
     details.open = true;
     const title = document.createElement("summary");
-    title.textContent = "Вариант " + proof.choice + " · " + (proof.source || "Цитата из документа");
+    const label = proof.choice ? "Вариант " + proof.choice : "Фрагмент для сверки";
+    title.textContent = [label, proof.source].filter(Boolean).join(" · ");
     details.append(title);
     if (proof.excerpt) {
       const quote = document.createElement("blockquote");

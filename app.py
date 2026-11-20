@@ -242,6 +242,9 @@ class QuizServer(ThreadingHTTPServer):
                 "detail": result.get("detail") or ("" if choices else
                 ("Подтверждённого ответа в карточках нет. Для разбора лекции выбери модель."
                  if not model else "В найденном тексте модель не подтвердила ни один вариант."))}
+        for field in ("verification", "matchedQuestion"):
+            if field in result:
+                response[field] = result[field]
         if record:
             elapsed = round(1000 * (time.monotonic() - started))
             try:
@@ -354,17 +357,18 @@ class Handler(BaseHTTPRequestHandler):
                     self.server.embedding_model = model.strip()
                     return status
             if image_request:
+                index = self.server.corpus.index(data["lectureIds"]) if data.get("lectureIds") else None
+                vocabulary = index.ocr_vocabulary if index is not None and sys.platform != "darwin" else None
                 if path == "/api/detect-layout":
-                    parts, aspect = ocr.layout_observations(data.get("image"))
+                    parts, aspect = ocr.layout_observations(data.get("image"), vocabulary)
                     result = assess_layout(parts, aspect=aspect)
                 else:
-                    result = {"texts": ocr.recognize(data.get("image"), data.get("regions"))}
+                    result = {"texts": ocr.recognize(data.get("image"), data.get("regions"), vocabulary)}
                 if "selectionMode" not in result and result["texts"]:
                     question, *options = result["texts"]
                     result.update(quiz_mode.selection_hint(question, options))
                     result["texts"] = [question, *quiz_mode.clean_options(options)]
-                if result["texts"] and data.get("lectureIds"):
-                    index = self.server.corpus.index(data["lectureIds"])
+                if result["texts"] and index is not None:
                     result["comparisonTexts"] = index.normalize_ocr_fields(result["texts"])
                 return result
             if path == "/api/solve":

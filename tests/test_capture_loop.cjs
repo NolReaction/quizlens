@@ -59,6 +59,7 @@ async function makeSession() {
     fetch: async path => ({ ok: true, json: async () => path === '/api/models' ? { models: [] } : { lectures: [] } }),
   });
   vm.runInContext(readFileSync(join(__dirname, '../ui/token-usage.js'), 'utf8'), context);
+  vm.runInContext(readFileSync(join(__dirname, '../ui/answer-proof.js'), 'utf8'), context);
   vm.runInContext(source, context);
   await new Promise(resolve => setImmediate(resolve));
   vm.runInContext(`
@@ -200,6 +201,46 @@ test('continually changing OCR text eventually hides a stale answer', async () =
   }
   assert.equal(port.answers.at(-1).tag, undefined);
   assert.equal(port.lookups.length, 1);
+});
+
+test('a model percentage stays tentative until calculation verifies the result; only the proof is reused', async () => {
+  const { port, read, flush, api, node } = await makeSession();
+  const texts = ['Из 1000 клиентов ушли 10. Чему равна Accuracy при прогнозе «останется»?', '0%', '1%', '50%', '99%'];
+  const equation = '990 / 1000 × 100 = 99%';
+  const evidence = {source:'Лекция', excerpt:equation};
+  const see = fields => { read(fields); read(fields); };
+  see(texts);
+  port.lookups[0].resolve({...evidence, kind:'model', choice:2});
+  await flush();
+  const tentative = port.answers.at(-1);
+  assert.equal(tentative.tentative, true);
+  api.drawAnswer(node('answer'), tentative);
+  assert.ok(node('answer').children.some(child => child.textContent === 'Вариант модели · расчёт не проверен'));
+  see(texts);
+  assert.equal(port.lookups.length, 1);
+  see(blank); see(texts);
+  assert.equal(port.lookups.length, 2);
+  port.lookups[1].resolve({...evidence, kind:'calculation', choice:4, verification:{kind:'calculation', equation}});
+  await flush();
+  see(blank); see(texts);
+  assert.equal(port.lookups.length, 2);
+  const replay = port.answers.at(-1);
+  assert.equal(replay.title, '99%');
+  assert.equal(replay.tokenUsage.source, 'cache');
+  api.drawAnswer(node('answer'), replay);
+  assert.ok(node('answer').children.some(child => child.textContent === 'Проверено расчётом · ' + equation));
+});
+
+test('an OCR card identifies its original wording without claiming an arithmetic check', async () => {
+  const { port, read, flush } = await makeSession();
+  const question = 'Какова конверсия при 8 покупках на 200 посетителей?';
+  const fields = [question.replace('конверсия', 'конверсня'), '4%', '8%'];
+  read(fields); read(fields);
+  port.lookups[0].resolve({kind:'ocr_card', choice:1, matchedQuestion:question, source:'Карточка', excerpt:'4%'});
+  await flush();
+  const view = port.answers.at(-1);
+  assert.equal(view.title, '4%');
+  assert.equal(view.note, 'Вопрос в карточке · «' + question + '»');
 });
 
 test('lecture-supported OCR aliases share one key, while the chosen raw text is preserved', async () => {

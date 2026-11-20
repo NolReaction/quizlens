@@ -96,7 +96,8 @@ class Journal:
         key = _scope(question, options, lecture_ids, selection_mode, expected_count)
         identifier = uuid.uuid4().hex
         created = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        data = {k: response[k] for k in ("choice", "choices", "source", "kind", "excerpt", "evidence", "detail")
+        data = {k: response[k] for k in ("choice", "choices", "source", "kind", "excerpt", "evidence",
+                                         "detail", "verification", "matchedQuestion")
                 if k in response}
         row = {"id": identifier, "createdAt": created, "question": question, "options": list(options),
                "lectureIds": list(lecture_ids), "model": model, "selectionMode": selection_mode,

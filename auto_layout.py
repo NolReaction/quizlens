@@ -146,7 +146,7 @@ def _lines(parts, aspect):
 _PROMPT = re.compile(r'^(?:выбер\w*|укаж\w*|отмет\w*|определ\w*|найд\w*|рассчита\w*|'
                      r'сопостав\w*|заверш\w*|како\w*|котор\w*|choose|select|identify|pick|check|mark|tick|'
                      r'calculate|complete|which|what|how|where|when|why)\b', re.I)
-_UI = re.compile(r'^(?:(?:вопрос|question)\s*\d+\s*(?:из|of|/)\s*\d+.*|'
+_UI = re.compile(r'^(?:(?:вопрос|question)\s*\d+\s*(?:из|of|/)\s*(?:\d+.*|[бзoо])|'
                  r'(?:\d+\s*(?:с|s|сек(?:унд[ыа]?)?)|\d{1,2}:\d{2})|'
                  r'(?:(?:осталось(?: времени)?|time left|таймер)\b.*)|'
                  r'(?:выберите|выбери|select|choose)\s+(?:один(?: из)?|one)(?:\s+(?:вариант(?:ов)?(?: ответа)?|answer|option))?[.!]?|'

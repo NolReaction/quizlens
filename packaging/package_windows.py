@@ -9,7 +9,7 @@ import zipfile
 SOURCE = Path(__file__).resolve().parents[1]
 SAMPLES = ("analytics-demo.txt", "analytics-demo.quiz.json", "ocr-warmup.png", "QuizLens-demo.ipynb")
 MODULES = ("app", "advisor", "model_bench", "auto_layout", "engine", "journal", "native_mode", "ocr",
-           "ocr_layout", "quiz_mode", "semantic", "training", "visual")
+           "numeric_evidence", "ocr_terms", "ocr_layout", "quiz_mode", "semantic", "training", "visual")
 
 
 def package(source, target):

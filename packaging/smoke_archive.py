@@ -74,6 +74,17 @@ def smoke(archive, signing):
                 advice = json.load(response)
             if not advice.get("primary") or not advice.get("catalog"):
                 raise ValueError("The packaged advisor could not load its model catalog.")
+            with local.open(url + "/api/lectures", timeout=7) as response:
+                lectures = json.load(response)["lectures"]
+            source = next(row for row in lectures if row["builtIn"] and row["name"] == "analytics-demo.txt")
+            question = {"question": "Из 1000 клиентов ушли 10. Модель предсказала всем клиентам «останется». Чему равна Accuracy?",
+                        "options": ["50 %", "99 %", "0 %", "1 %"], "lectureIds": [source["id"]], "channel": "check"}
+            request = Request(url + "/api/solve", data=json.dumps(question).encode(),
+                              headers={"Content-Type": "application/json"})
+            with local.open(request, timeout=7) as response:
+                answer = json.load(response)
+            if answer.get("choices") != [2] or answer.get("verification", {}).get("kind") != "calculation":
+                raise ValueError(f"The packaged service could not verify the Accuracy example: {answer}")
             for path in ("/", "/setup", "/train", "/journal", "/demo?lobby=1"):
                 with local.open(url + path, timeout=7) as response:
                     if response.status != 200 or b"<!doctype html>" not in response.read().lower():

@@ -5,7 +5,7 @@ from statistics import median
 # A bare time can be part of the question. It needs a counter on the same
 # line or a distinct right-hand clock above/below the actual question.
 _TIME = r"(?:[0-9]{1,2}:[0-5][0-9]|[0-9]{1,3}(?:[.,][0-9])?\s*(?:с|s|c|сек(?:унд[ауы]?)?\.?|seconds?|secs?))"
-_COUNTER = r"(?:вопрос|question)\s+[0-9]+\s*(?:из|of|/)\s*[0-9]+"
+_COUNTER = r"(?:вопрос|question)\s+[0-9]+\s*(?:из|of|/)\s*(?:[0-9]+|[бзoо])"
 _LABELED_TIME = rf"(?:осталось(?:\s+времени)?|таймер|time\s+(?:left|remaining)|timer|remaining)\s*[:–-]?\s*(?:{_TIME}|[0-9]{{1,3}})"
 _CHROME = re.compile(rf"(?:{_COUNTER}(?:\s+(?:{_LABELED_TIME}|{_TIME}))?|{_LABELED_TIME})", re.I)
 _CLOCK = re.compile(_TIME, re.I)
@@ -166,13 +166,13 @@ def percent_badge_splits(options):
     return splits
 
 
-def _overlapping_percent_digit(parts):
-    # Tesseract can report the lower loop of '%' a second time as a tiny digit.
+def _overlapping_percent_artifact(parts):
+    # Tesseract can report the lower loop of '%' a second time as a tiny digit, letter or degree sign.
     # Only remove it when it overlaps the already recognized percent glyph.
     if len(parts) != 2:
         return False
     amount, digit = parts
-    if not _PERCENT.fullmatch(amount["text"]) or not re.fullmatch(r"[0-9]", digit["text"]):
+    if not _PERCENT.fullmatch(amount["text"]) or not re.fullmatch(r"[0-9°oO]|fo", digit["text"]):
         return False
     right = amount["x"] + amount["w"]
     return (0 < digit["w"] <= .28 * amount["w"] and 0 < digit["h"] <= .6 * amount["h"]
@@ -192,7 +192,7 @@ def ocr_texts(groups):
     texts[0] = _join(_without_timer(groups[0]))
     options = groups[1:]
     if sum(bool(_PERCENT.fullmatch(value)) for value in texts[1:]) >= 2:
-        options = [parts[:1] if _overlapping_percent_digit(parts) else parts for parts in options]
+        options = [parts[:1] if _overlapping_percent_artifact(parts) else parts for parts in options]
         texts[1:] = [_join(parts) for parts in options]
     badges = [_badge_candidate(parts, i) for i, parts in enumerate(options, 1)]
     for index, (value, _) in percent_badge_splits(options).items():

@@ -11,6 +11,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 import select
 import shutil
 import struct
@@ -341,7 +342,123 @@ def windows_ocr_status():
     return {"state": "ready", "displayDetail": True, "detail": "Tesseract готов. Установлены русский и английский языки."}
 
 
-def _tesseract(raw_image, regions):
+def _read_tsv(pages, binary, languages, mode, timeout):
+    # Batch pages so that each reading pass starts Tesseract just once.
+    buffer = io.BytesIO()
+    pages[0].save(buffer, format="TIFF", save_all=True, append_images=pages[1:], compression="tiff_lzw")
+    try:
+        result = subprocess.run([binary, "stdin", "stdout", "--psm", mode, "-l", languages, "tsv"],
+                                input=buffer.getvalue(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=dict(os.environ, OMP_THREAD_LIMIT="1"), timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Распознавание Tesseract заняло слишком много времени.") from exc
+    if result.returncode:
+        raise RuntimeError("Tesseract не смог распознать этот кадр.")
+    groups = [[] for _ in pages]
+    seen = set()
+    for row in result.stdout.decode("utf-8").splitlines()[1:]:
+        cells = row.split("\t", 11)
+        if len(cells) != 12:
+            continue
+        level, page = int(cells[0]), int(cells[1]) - 1
+        if not 0 <= page < len(groups):
+            raise RuntimeError("Tesseract вернул неизвестный номер страницы.")
+        if level == 1:
+            seen.add(page)
+        if level == 5 and cells[11].strip():
+            x, y, w, h = map(int, cells[6:10])
+            groups[page].append(dict(text=cells[11], x=x, y=y, w=w, h=h))
+    if len(seen) != len(pages):
+        raise RuntimeError("Tesseract вернул неполный результат распознавания.")
+    return groups
+
+
+def _word_image(page, part):
+    x, y = part["x"], part["y"]
+    return page.crop((x, y, x + part["w"], y + part["h"]))
+
+
+def _separate_badge(page, part):
+    # The number printed in a small circle may join the percentage into a single
+    # OCR word. Split boxes only if the pixels contain a smaller glyph separated
+    # by a large blank gutter; layout still checks the option numbering.
+    if (not re.fullmatch(r"[1-8][0-9]+(?:[.,][0-9]+)?[%‰]", part["text"])
+            or not 5 <= part["h"] <= 128 or not 8 <= part["w"] <= 512):
+        return [part]
+    image = _word_image(page, part)
+    histogram = image.histogram()
+    background = max(range(256), key=histogram.__getitem__)
+    low, high = image.getextrema()
+    if high - low < 35:
+        return [part]
+    foreground = low if background - low >= high - background else high
+    threshold = abs(foreground - background) * .5
+    ink = image.point(lambda level: 255 if abs(level - background) > threshold else 0)
+    xmask = ink.getprojection()[0]
+    try:
+        left = xmask.index(1)
+        end = xmask.index(0, left)
+        body_start = xmask.index(1, end)
+    except ValueError:
+        return [part]
+    small = ink.crop((left, 0, end, image.height)).getbbox()
+    body = ink.crop((body_start, 0, image.width, image.height)).getbbox()
+    if not small or not body:
+        return [part]
+    body_height = body[3] - body[1]
+    small_height = small[3] - small[1]
+    if (not .35 * body_height <= small_height <= .8 * body_height
+            or end - left > .68 * body_height or body_start - end < .8 * body_height):
+        return [part]
+    return [
+        dict(text=part["text"][0], x=part["x"] + left, y=part["y"] + small[1],
+             w=end - left, h=small_height),
+        dict(text=part["text"][1:], x=part["x"] + body_start, y=part["y"] + body[1],
+             w=body[2] - body[0], h=body_height),
+    ]
+
+
+def _verify_lecture_words(pages, groups, binary, vocabulary):
+    # The default Russian+English pass sometimes picks a Russian lookalike
+    # even with very high confidence. Confirm documented terms on their pixels.
+    from PIL import Image, ImageOps
+    candidates = []
+    for page, parts in zip(pages, groups):
+        for part in parts:
+            match = re.fullmatch(r"([^\w]*)([^\W\d_]{4,40})([^\w]*)", part["text"])
+            if not match or not (4 <= part["h"] <= 160 and 8 <= part["w"] <= 800):
+                continue
+            candidate = vocabulary.candidate(match[2])
+            if candidate:
+                candidates.append((page, part, match, candidate))
+                if len(candidates) >= 8:
+                    break
+        if len(candidates) >= 8:
+            break
+    if not candidates:
+        return
+    crops = []
+    for page, part, _, _ in candidates:
+        image = _word_image(page, part)
+        histogram = image.histogram()
+        if sum(histogram[:128]) > sum(histogram[128:]):
+            image = ImageOps.invert(image)
+        height = 48
+        width = max(1, round(image.width * height / image.height))
+        resized = image.resize((width, height), getattr(Image, "Resampling", Image).LANCZOS)
+        crops.append(ImageOps.expand(resized, border=10, fill="white"))
+    try:
+        readings = _read_tsv(crops, binary, "eng", "8", timeout=1.5)
+    except (RuntimeError, OSError, ValueError):
+        return  # The primary reading remains available on a slow/busy machine.
+    for (_, part, match, candidate), words in zip(candidates, readings):
+        text = "".join(w["text"] for w in words)
+        read = re.fullmatch(r"[^\w]*([A-Za-z]+)[^\w]*", text)
+        if read and read[1].casefold() == candidate:
+            part["text"] = match[1] + read[1] + match[3]
+
+
+def _tesseract(raw_image, regions, vocabulary=None):
     try:
         from PIL import Image
     except ImportError as exc:
@@ -372,35 +489,13 @@ def _tesseract(raw_image, regions):
                     pages.append(image.crop((left, top, min(right, width), min(bottom, height))).convert("L"))
     except (OSError, Image.DecompressionBombError) as exc:
         raise ValueError("Не удалось прочитать изображение.") from exc
-    # One TIFF page per region, one Tesseract startup per captured frame.
-    buffer = io.BytesIO()
-    pages[0].save(buffer, format="TIFF", save_all=True, append_images=pages[1:], compression="tiff_lzw")
-    try:
-        # Full windows contain separate UI blocks and wide column gutters.
-        mode = "11" if regions is None else "6"
-        result = subprocess.run([binary, "stdin", "stdout", "--psm", mode, "-l", languages, "tsv"],
-                                input=buffer.getvalue(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                env=dict(os.environ, OMP_THREAD_LIMIT="1"), timeout=15)
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Распознавание Tesseract заняло слишком много времени.") from exc
-    if result.returncode:
-        raise RuntimeError("Tesseract не смог распознать этот кадр.")
-    groups = [[] for _ in pages]
-    seen = set()
-    for row in result.stdout.decode("utf-8").splitlines()[1:]:
-        cells = row.split("\t", 11)
-        if len(cells) != 12:
-            continue
-        level, page = int(cells[0]), int(cells[1]) - 1
-        if not 0 <= page < len(groups):
-            raise RuntimeError("Tesseract вернул неизвестный номер страницы.")
-        if level == 1:
-            seen.add(page)
-        if level == 5 and cells[11].strip():
-            x, y, w, h = map(int, cells[6:10])
-            groups[page].append(dict(text=cells[11], x=x, y=y, w=w, h=h))
-    if len(seen) != len(pages):
-        raise RuntimeError("Tesseract вернул неполный результат распознавания.")
+    groups = _read_tsv(pages, binary, languages, "11" if regions is None else "6", timeout=15)
+    if regions is None and len(groups[0]) > 900:
+        return [], width / height
+    if vocabulary and "eng" in languages:
+        _verify_lecture_words(pages, groups, binary, vocabulary)
+    groups = [[piece for part in parts for piece in _separate_badge(page, part)]
+              for page, parts in zip(pages, groups)]
     if regions is None:
         # Retain separate word boxes, even if Tesseract places both columns on one line.
         w, h = pages[0].size
@@ -410,18 +505,18 @@ def _tesseract(raw_image, regions):
     return ocr_texts(groups)
 
 
-def layout_observations(image_data_url):
+def layout_observations(image_data_url, vocabulary=None):
     """Return current-frame OCR boxes (normalized, top-left) and original width/height."""
     raw = _decode_image(image_data_url)
     if sys.platform == "darwin":
         return _vision(raw, None)
-    return _tesseract(raw, None)
+    return _tesseract(raw, None, vocabulary)
 
 
-def recognize(image_data_url, regions):
+def recognize(image_data_url, regions, vocabulary=None):
     """Return question and choices in supplied region order."""
     regions = _validate_regions(regions)
     raw = _decode_image(image_data_url)
     if sys.platform == "darwin":
         return _vision(raw, regions)
-    return _tesseract(raw, regions)
+    return _tesseract(raw, regions, vocabulary)

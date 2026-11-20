@@ -70,6 +70,14 @@ class JournalTests(unittest.TestCase):
         self.assertIsNone(self.lookup())
         self.assertFalse(any(entry["corrected"] for entry in self.journal.list()))
 
+    def test_replay_retains_the_type_and_basis_of_a_verified_answer(self):
+        for metadata in ({"kind": "calculation", "verification": {"kind": "calculation", "equation": "8 / 200 × 100 = 4%"}},
+                         {"kind": "ocr_card", "matchedQuestion": "Какова конверсия?"}):
+            response = {"choice": 1, "choices": [1], **metadata}
+            identifier = self.journal.record("Какова конверсня?", ["4%", "8%"], self.lectures, "", "single", 1,
+                                             response, "browser", 10, 0)
+            self.assertEqual(Journal(self.path).get(identifier)["response"], response)
+
     def test_validates_complete_distinct_answers(self):
         ident = self.record()
         for value in [None, 1, [], [0, 1], [True, 3], [2, 2], [1, 3, 4], [1], [1, 5]]:

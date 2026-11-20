@@ -55,6 +55,7 @@ function drawAnswer(container, info) {
   addText(container, 'answer-tag', info.tag);
   addText(container, 'answer-title', info.title);
   addText(container, 'answer-text', info.subtitle);
+  addText(container, info.tentative ? 'answer-text problem-text' : 'answer-text', info.note);
   if (info.selections) {
     for (const item of info.selections) addText(container, 'answer-text', item.choice + '. ' + item.text);
     const details = container.ownerDocument.createElement('details');
@@ -612,11 +613,11 @@ function answerForResult(result, options, selection) {
       });
       if (selections.every(item=>item.source && item.excerpt)) {
         const numbers=new Intl.ListFormat('ru',{type:'conjunction'}).format(selections.map(item=>String(item.choice)));
-        return {...journal,title:'Отметь '+numbers,selections};
+        return {...journal,...answerProof(result,options),title:'Отметь '+numbers,selections};
       }
     }
   } else if (Number.isInteger(result.choice) && result.choice>=1 && result.choice<=options.length) {
-    return {...journal,tag:'Вариант '+result.choice,title:options[result.choice-1],source:result.source,excerpt:result.excerpt};
+    return {...journal,...answerProof(result,options),tag:'Вариант '+result.choice,title:options[result.choice-1],source:result.source,excerpt:result.excerpt};
   }
   return {...journal,title:result.kind==='error'?'Ответ недоступен':'Нет подтверждения',subtitle:result.detail || 'Сверь ответ с найденным фрагментом документа.',source:result.source,excerpt:result.excerpt,unclear:true};
 }
@@ -624,6 +625,7 @@ function displayResult(view) {
   state.displayedKey=state.currentKey;
   answer(view);
   if(view.unclear) status('Проверь источник','problem');
+  else if(view.tentative) status('Сверь расчёт','problem');
   else status('Ответ готов','active');
 }
 function cacheResult(key, result) {
@@ -651,7 +653,7 @@ async function solve(texts,key,session,selection) {
     const result=await postJson('/api/solve',params,job.controller.signal);
     if(state.session!==session || job.controller.signal.aborted) return;
     const view=answerForResult(result,options,selection);
-    if(!view.unclear) cacheResult(key,result);
+    if(!view.unclear && !view.tentative) cacheResult(key,result);
     if(state.currentKey===key && state.candidateKey===null) displayResult(view);
   } catch(error) {
     if(state.session!==session || job.controller.signal.aborted) return;

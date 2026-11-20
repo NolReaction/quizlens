@@ -159,6 +159,7 @@ function addReplay(parent, row) {
   if (trace) parent.append(trace);
 
   const titles = {model:'Выдержки из лекции', exact:'Совпадение с готовой карточкой',
+    ocr_card:'Карточка, найденная по распознанному тексту', calculation:'Источник для проверки расчёта',
     correction:'Совпадение с твоей карточкой', retrieval:'Найденная выдержка'};
   const proofs = block(titles[result.kind] || 'Источник подсказки', false);
   if (result.evidence?.length) {
@@ -173,6 +174,10 @@ function addReplay(parent, row) {
   const answer = block('Ответ при захвате');
   answer.append(node('p', choices.length ? numberList(choices) : result.kind === 'error'
     ? 'Поиск прервался.' : 'Подтверждённого варианта нет.'));
+  if (choices.length) {
+    const proof = answerProof(result, row.options);
+    if (proof.note) answer.append(node('p', proof.note, proof.tentative ? 'problem-text' : ''));
+  }
   if (result.detail) answer.append(node('p', result.detail, 'meta'));
   if (row.correctionChoices.length) answer.append(node('p', 'Твоя карточка сейчас · ' + numberList(row.correctionChoices)));
   answer.append(timingInfo(row));
