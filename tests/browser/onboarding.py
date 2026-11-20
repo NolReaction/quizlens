@@ -130,28 +130,35 @@ def check_model_choices(page, directory, prefix):
 
 def check_disclosure_motion(page):
     manager = page.locator("#sourceManager")
-    sizes = manager.evaluate("""details => {
+    sizes = manager.evaluate("""async details => {
+        const summary = details.querySelector('summary');
+        const body = details.querySelector('.disclosure-body');
         const height = () => details.getBoundingClientRect().height;
-        function halfHeight(open) {
-            details.open = open;
-            const slide = details.getAnimations().find(a => a.transitionProperty === 'grid-template-rows');
-            if (!slide) throw Error('Missing source disclosure transition');
-            slide.pause();
-            slide.currentTime = slide.effect.getTiming().duration / 2;
+        async function toggle() {
+            summary.click();
+            const animation = body.getAnimations()[0];
+            if (!animation) throw Error('Missing source disclosure animation');
+            animation.pause();
+            await animation.ready;
+            animation.currentTime = animation.effect.getTiming().duration / 2;
             const halfway = height();
-            slide.finish();
+            // The finish handler restores natural layout and the native open state.
+            const finished = new Promise(resolve => animation.addEventListener('finish', resolve, {once:true}));
+            animation.finish();
+            await finished;
             return [halfway, height()];
         }
-        return [height(), ...halfHeight(true), ...halfHeight(false)];
+        return [height(), ...await toggle(), ...await toggle()];
     }""")
     closed, growing, full, shrinking, final = sizes
     assert closed < growing < full and final < shrinking < full and abs(closed - final) < 1, sizes
     page.emulate_media(reduced_motion="reduce")
     assert manager.evaluate("""el => {
-        el.open = true;
-        const running = el.getAnimations({subtree:true}).length;
-        el.open = false;
-        return running === 0;
+        const summary = el.querySelector('summary');
+        summary.click();
+        const opened = el.open && el.getAnimations({subtree:true}).length === 0;
+        summary.click();
+        return opened && !el.open;
     }""")
     page.emulate_media(reduced_motion="no-preference")
 

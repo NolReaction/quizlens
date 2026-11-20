@@ -1,6 +1,49 @@
 'use strict';
 
 (() => {
+  const motion = matchMedia('(prefers-reduced-motion: no-preference)');
+  for (const details of document.querySelectorAll('details.source-manager, details.capture-menu, details.panel, details.table-data, details#wording')) {
+    const summary = details.querySelector('summary');
+    const body = document.createElement('div');
+    body.className = 'disclosure-body';
+    while (summary.nextSibling) body.append(summary.nextSibling);
+    details.append(body);
+    let animation;
+    let expanding;
+
+    function settle() {
+      if (!expanding) details.open = false;
+      body.inert = false;
+      details.classList.remove('disclosure-closing');
+      summary.removeAttribute('aria-expanded');
+      animation = null;
+    }
+    summary.addEventListener('click', event => {
+      if (!motion.matches || !body.animate || event.defaultPrevented) return;
+      event.preventDefault();
+      expanding = animation ? !expanding : !details.open;
+      const from = details.open ? body.getBoundingClientRect().height : 0;
+      animation?.cancel();
+      details.open = true;
+      const to = expanding ? body.getBoundingClientRect().height : 0;
+      body.inert = !expanding;
+      summary.setAttribute('aria-expanded', String(expanding));
+      details.classList.toggle('disclosure-closing', !expanding);
+      const next = body.animate([{height:from + 'px'}, {height:to + 'px'}], {
+        duration:190, easing:'cubic-bezier(.2,.8,.25,1)', fill:'both'
+      });
+      animation = next;
+      next.onfinish = () => {
+        if (animation !== next) return;
+        settle();
+        next.cancel(); // Resume natural height when content or viewport changes.
+      };
+    });
+    motion.addEventListener('change', () => {
+      if (animation && !motion.matches) { animation.cancel(); settle(); }
+    });
+  }
+
   const nav = document.querySelector('.top .primary-nav');
   const sections = nav.querySelector('.nav-sections');
   const dialog = document.getElementById('appUpdates');

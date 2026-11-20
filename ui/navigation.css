@@ -60,7 +60,9 @@
     display:grid; padding-bottom:6px; margin-bottom:6px; gap:0; border-bottom:1px solid #34454c;
   }
 }
-/* Keep the summary, focus order and the native open state available without JavaScript. */
+.disclosure-body {display:flow-root}
+summary[aria-expanded] + .disclosure-body {overflow:hidden}
+details.disclosure-closing > summary::after {transform:rotate(45deg); margin-bottom:3px}
 .source-manager > summary, .capture-menu > summary {border-radius:8px; padding-inline:6px; margin-inline:-6px}
 :is(.source-manager, .capture-menu) > summary:focus-visible {outline-offset:0}
 @media (hover:hover) {
@@ -84,16 +86,6 @@
     }
     #serviceMenu[open]::details-content {opacity:1; transform:none}
     #serviceMenu:not([open]) .nav-popover {pointer-events:none}
-    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording) {
-      display:grid; grid-template-rows:auto 0fr;
-      transition:grid-template-rows 190ms cubic-bezier(.2,.8,.25,1);
-    }
-    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording)[open] {grid-template-rows:auto 1fr}
-    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording)::details-content {
-      display:block; min-block-size:0; overflow:clip; opacity:0;
-      transition:opacity 150ms ease, content-visibility 190ms allow-discrete;
-    }
-    :is(.capture-menu, .source-manager, details.panel, .table-data, #otherModels, #wording)[open]::details-content {opacity:1}
   }
   .updates-dialog[open] {animation:nav-appear 160ms cubic-bezier(.2,.8,.2,1)}
   @keyframes nav-appear {
