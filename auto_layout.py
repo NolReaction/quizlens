@@ -1,5 +1,6 @@
 """Find a question and two to eight choices in full-window OCR, in screen coordinates."""
 from dataclasses import dataclass
+from itertools import groupby
 import math
 import re
 from statistics import median
@@ -74,6 +75,77 @@ def colored_card_stack(image):
             continue
         stacks.append([tuple(round(value * (width/w if i % 2 == 0 else height/h))
                             for i,value in enumerate(card[:4])) for card in column])
+    return stacks[0] if len(stacks) == 1 else []
+
+
+def uniform_card_stack(image):
+    """Locate four separate, identical fill rectangles, even next to a picture."""
+    width, height = image.size
+    scale = min(1, 620 / width, 480 / height)
+    w, h = max(1, round(width * scale)), max(1, round(height * scale))
+    palette = image.resize((w, h), resample=0).convert('RGB').quantize(colors=48)
+    rgb = palette.getpalette()
+    colors = {}
+    lookup = bytearray(range(256))
+    for count, index in sorted(palette.getcolors(), reverse=True):
+        tone = rgb[3*index:3*index+3]
+        if count < .006*w*h or max(tone) - min(tone) > 68:
+            continue
+        representative = next((i for i, other in colors.items()
+                               if max(abs(a-b) for a, b in zip(tone, other)) <= 8), None)
+        if representative is None:
+            colors[index] = tone
+        else:
+            lookup[index] = representative
+    pixels = palette.tobytes().translate(bytes(lookup))
+    runs = re.compile(rb'(.)\1{%d,}' % max(2, round(.10*w)), re.S)
+    columns = []
+    for y in range(h):
+        for run in runs.finditer(pixels[y*w:(y+1)*w]):
+            index = run[1][0]
+            left, right = run.span()
+            span = right-left
+            if index not in colors or span > .75*w:
+                continue
+            tolerance = max(3, .055*span)
+            column = next((c for c in columns if c[0] == index and
+                           abs(c[1]-left) < tolerance and abs(c[2]-right) < tolerance), None)
+            if column is None:
+                column = (index, left, right, [])
+                columns.append(column)
+            column[3].append((y, left, right))
+    stacks = []
+    for index, _, _, rows in columns:
+        if len(rows) < .24*h:
+            continue
+        left = round(median(row[1] for row in rows))
+        right = round(median(row[2] for row in rows))
+        color = bytes((index,))
+        start, end = rows[0][0], rows[-1][0]+1
+        # Sample narrow stripes near the edges, outside the centered text.
+        inset = max(1, round(.027*(right-left)))
+        stripe = max(2, round(.026*(right-left)))
+        filled = []
+        for y in range(start, end):
+            row = pixels[y*w:(y+1)*w]
+            count = row[left+inset:left+inset+stripe].count(color)
+            count += row[right-inset-stripe:right-inset].count(color)
+            filled.append((y, count >= 1.4*stripe))
+        bands = []
+        for present, group in groupby(filled, key=lambda row: row[1]):
+            rows_in_band = list(group)
+            if present and len(rows_in_band) >= .055*h:
+                bands.append((rows_in_band[0][0], rows_in_band[-1][0]+1))
+        if len(bands) != 4:
+            continue
+        heights = [bottom-top for top, bottom in bands]
+        typical = median(heights)
+        gaps = [b[0]-a[1] for a, b in zip(bands, bands[1:])]
+        if (min(heights) < .85*typical or max(heights) > 1.18*typical or typical > .24*h
+                or max(gaps) > .24*typical or bands[0][0] <= 1 or bands[-1][1] >= h-1):
+            continue
+        stacks.append([(round(left*width/w), round(top*height/h),
+                        round(right*width/w), round(bottom*height/h)) for top, bottom in bands])
     return stacks[0] if len(stacks) == 1 else []
 
 
@@ -279,6 +351,39 @@ def _questions(lines):
         if len(q.text) >= 5 and q not in questions:
             questions.append(q)
     return questions
+
+
+def assess_card_layout(parts, cards, *, size):
+    """Read only the title and text belonging to a verified uniform card stack."""
+    width, height = size
+    aspect = width/height
+    lines = _lines(parts, aspect)
+    boxes = [tuple(coordinate/height for coordinate in box) for box in cards]
+    left, top, right, bottom = boxes[0]
+    card_width, card_height = right-left, bottom-top
+    questions = [q for q in _questions(lines) if 0 <= top-q.bottom <= .8*card_height
+                 and left-2.5*card_width <= q.x and left-.6*card_width <= q.right <= right+.2*card_width
+                 and len(q.text.split()) >= 4]
+    if len(questions) != 1:
+        return None
+    question = questions[0]
+    options = []
+    for x, y, r, b in boxes:
+        margin = .18*(b-y)
+        content = [s for s in lines if x <= s.x and s.right <= r
+                   and y+margin <= s.cy <= b-margin and .04*(b-y) <= s.h <= .34*(b-y)]
+        if not 1 <= len(content) <= 4:
+            return None
+        options.append(_union(_group_by_rows(content)).text)
+    if len({option.casefold() for option in options}) != 4:
+        return None
+    qbox = (question.x, question.y, question.right, question.bottom)
+    instructions = [s.text for s in lines if question.bottom <= s.y < top and question.x <= s.x < right
+                    and instruction_only(s.text)]
+    return {'regions': [{'x': x/aspect, 'y': y, 'w': (r-x)/aspect, 'h': b-y}
+                        for x, y, r, b in (qbox, *boxes)],
+            'texts': [question.text, *clean_options(options)],
+            **selection_hint(question.text, options, instructions)}
 
 
 def _rows_uniform(values, height):

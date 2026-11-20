@@ -22,7 +22,7 @@ import threading
 import time
 from statistics import median
 
-from auto_layout import assess_layout, colored_card_stack
+from auto_layout import assess_card_layout, assess_layout, colored_card_stack, uniform_card_stack
 from ocr_layout import ocr_texts
 from ocr_review import field_warnings
 from quiz_mode import selection_hint
@@ -690,8 +690,14 @@ def _tesseract(raw_image, regions, vocabulary=None, *, review=False):
         if not review:
             return parts, width / height
         result = assess_layout(parts, aspect=width / height)
-        if color_stack_found and not result['regions']:
-            return _unreadable_color_stack()
+        if not result['regions']:
+            if color_stack_found:
+                return _unreadable_color_stack()
+            if parts:
+                with Image.open(io.BytesIO(raw_image)) as image:
+                    cards = uniform_card_stack(image)
+                if cards:
+                    result = assess_card_layout(parts, cards, size=(width, height)) or result
     else:
         texts = ocr_texts(groups)
         if not review:

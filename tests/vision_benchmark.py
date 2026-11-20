@@ -36,6 +36,7 @@ class Case:
     dark: bool = False
     scale: float = 1.0
     colored_cards: bool = False
+    uniform_cards: bool = False
 
 
 # Ground truth is known before drawing. Never send this text to the runtime.
@@ -49,6 +50,8 @@ CASES = (
     Case("units", "Какое измерение совпадает с одним метром?", ("10 см", "100 мм", "1,0 м", "0,1 м"), scale=.8),
     Case("colored-cards", "Один из этих приборов измеряет\nтемпературу воздуха на улице\nв тени.",
          ("Барометр", "Термометр", "Вольтметр", "Анемометр"), colored_cards=True),
+    Case("uniform-cards", "Как называется прибор для измерения силы тока?",
+         ("Термометр", "Амперметр", "Барометр", "Динамометр"), uniform_cards=True),
 )
 
 
@@ -95,10 +98,37 @@ def render_colored_cards(case, phase, font):
     return png_url(image), regions
 
 
+def render_uniform_cards(case, phase, font):
+    width, height = 1920, 960
+    image = Image.new("RGB", (width, height), "#3a454b")
+    draw = ImageDraw.Draw(image)
+    body = ImageFont.truetype(font, 21)
+    small = ImageFont.truetype(font, 16)
+    left, top = 455 + 2*phase, 252 + phase
+    draw.text((22, 18), f"Вопрос {3+phase} из 8", font=small, fill="white")
+    draw.text((left, 157), case.question, font=body, fill="white")
+    draw.text((left, 208), "Задание по физике", font=small, fill="white")
+    draw.rounded_rectangle((left, top, left+595, top+598), 15, fill="#80704e")
+    for j in range(6):
+        y = top+55+90*j
+        draw.ellipse((left+42, y-12, left+545, y+34), fill="#b69756")
+        draw.text((left+120, y), "Учебная шкала", font=small, fill="#322534")
+    boxes = [(left-2, 150, 620, 38)]
+    for i, label in enumerate(case.options):
+        x, y = left+607, top+151*i
+        draw.rounded_rectangle((x, y, x+324, y+146), 15, fill="#263238")
+        draw.text((x+162, y+73), label, anchor="mm", font=body, fill="white")
+        boxes.append((x+4, y+42, 316, 60))
+    regions = [dict(x=x/width, y=y/height, w=w/width, h=h/height) for x, y, w, h in boxes]
+    return png_url(image), regions
+
+
 def render(case, phase, font):
     """Jitter the card by two pixels and move the timer without changing the answer text."""
     if case.colored_cards:
         return render_colored_cards(case, phase, font)
+    if case.uniform_cards:
+        return render_uniform_cards(case, phase, font)
     image = Image.new("RGB", (1040, 570), "#18222b" if case.dark else "#fbfcfd")
     draw = ImageDraw.Draw(image)
     fg, muted = ("#f4f6fa", "#d1d9e0") if case.dark else ("#111820", "#40505c")
@@ -226,9 +256,10 @@ def check_regressions(rows):
         for item in by_mode:
             if item["case"] in ("decimal", "signed", "operators") and item["unflaggedCriticalErrors"]:
                 raise ValueError(f"{mode}/{item['case']}: unchecked reading in fields {item['unflaggedCriticalErrors']}: {item['texts']}")
-    colored = [r for r in rows if r["mode"] == "auto" and r["case"] == "colored-cards"]
-    if len(colored) != 2 or not all(r["questionExact"] and r["optionsInOrder"] for r in colored):
-        raise ValueError(f"auto/colored-cards: question and all four choices must survive the timer change: {colored}")
+    for case in ("colored-cards", "uniform-cards"):
+        cards = [r for r in rows if r["mode"] == "auto" and r["case"] == case]
+        if len(cards) != 2 or not all(r["questionExact"] and r["optionsInOrder"] for r in cards):
+            raise ValueError(f"auto/{case}: question and all four choices must survive the layout change: {cards}")
 
 
 def main():
