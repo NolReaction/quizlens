@@ -135,7 +135,7 @@ def percent_badge_splits(options):
         if gutter <= 0 or not 0 < mark["w"] <= .52 * gutter:
             continue
         end = max(p["x"] + p["w"] for p in body)
-        peers.append((mark["x"], start, end - start, value))
+        peers.append((mark["x"], start, end - start, max(p["h"] for p in body), value))
 
     splits = {}
     for number, parts in enumerate(options, 1):
@@ -147,8 +147,9 @@ def percent_badge_splits(options):
             continue
         x = min(p["x"] for p in parts)
         right = max(p["x"] + p["w"] for p in parts)
-        aligned = [(start, width, text) for mark, start, width, text in peers
-                   if abs(mark - x) <= .18 * (start - mark)]
+        height = max(p["h"] for p in parts)
+        aligned = [(start, width, text) for mark, start, width, body_height, text in peers
+                   if abs(mark - x) <= .18 * (start - mark) and .75 * height <= body_height <= 1.3 * height]
         if len(aligned) < 2:
             continue
         start = median(a for a, _, _ in aligned)

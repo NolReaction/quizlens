@@ -70,6 +70,13 @@ class Layout(unittest.TestCase):
         options[3] = [part('16%', 35, w=40)]
         self.assertEqual(read(option('Conversion?'), options)[2], '24%')
 
+    def test_large_genuine_percentage_uses_its_own_font_size(self):
+        options = [[part('1', 10, w=5), part('2%', 35, w=31, h=14)],
+                   [part('24%', 10, w=56, h=24)],
+                   [part('3', 10, w=6), part('8%', 35, w=31, h=14)],
+                   [part('4', 10, w=6), part('16%', 35, w=40, h=14)]]
+        self.assertEqual(read(option('Conversion?'), options)[2], '24%')
+
     def test_overlapping_digit_from_lower_loop_of_percent(self):
         options = [option('2%'), [part('4%', 7, 23, 37, 18), part('2', 40, 32, 7, 9)],
                    option('8%'), option('16%')]
